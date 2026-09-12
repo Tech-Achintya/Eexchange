@@ -1,5 +1,7 @@
 # Eexchange Marketplace
 
+**Live Demo:** [https://frontend-eexchange.vercel.app/](https://frontend-eexchange.vercel.app/)
+
 Eexchange is a comprehensive online marketplace application that allows users to buy, sell, and exchange items. It is composed of a robust backend built with Java and Spring Boot, and a modern, responsive frontend developed with React and Vite.
 
 ## Table of Contents
