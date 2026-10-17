@@ -1,15 +1,18 @@
 package com.eexchange.backend.DTO;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class OtpVerificationRequest {
+public class PendingSignupData {
     private String email;
-    private String otpCode;
     private String name;
-    private String password;
+    private Long collegeId;
+    private boolean isCollegeVerified;
+    private String passwordHash;
 }

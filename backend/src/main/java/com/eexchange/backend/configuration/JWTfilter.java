@@ -1,6 +1,5 @@
 package com.eexchange.backend.configuration;
 
-import com.eexchange.backend.Service.CustomUserDetailsService;
 import com.eexchange.backend.utils.JWTutil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

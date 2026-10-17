@@ -27,6 +27,9 @@ public class User {
     @Column(nullable = false, length = 100)
     private String name;
 
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "college_id", nullable = false)
     private College college;

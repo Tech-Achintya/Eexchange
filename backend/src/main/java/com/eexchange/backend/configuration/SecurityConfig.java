@@ -1,6 +1,5 @@
 package com.eexchange.backend.configuration;
 
-import com.eexchange.backend.Service.CustomUserDetailsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,9 +28,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/items/all").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/dummy/**").permitAll()
+                        .requestMatchers("/api/auth/**", "/auth/**").permitAll()
                         .requestMatchers("/admin/**").hasAuthority("ROLE_ADMIN")
                         .anyRequest().authenticated()
                 )
