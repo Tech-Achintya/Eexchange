@@ -1,7 +1,6 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Entity.Otp;
-import com.eexchange.backend.Repository.OTPRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

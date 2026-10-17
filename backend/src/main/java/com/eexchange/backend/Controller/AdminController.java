@@ -3,7 +3,6 @@ package com.eexchange.backend.Controller;
 import com.eexchange.backend.Entity.items;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Service.ItemService;
-import com.eexchange.backend.Repository.UserRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 

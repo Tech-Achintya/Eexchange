@@ -32,6 +32,5 @@ build/
 ### VS Code ###
 .vscode/
 
-### Secrets ###
-src/main/resources/application.properties
+### Secrets — .env is NEVER committed; application.properties is safe (no secrets) ###
 .env

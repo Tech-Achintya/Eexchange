@@ -1,0 +1,83 @@
+# ============================================================
+# Eexchange — Local Development Infrastructure
+# ============================================================
+# Usage:
+#   Start:     docker compose up -d
+#   Stop:      docker compose stop
+#   Wipe data: docker compose down -v   ⚠ deletes all DB data
+#   Logs:      docker compose logs -f postgres
+# ============================================================
+# 🎓 WHY named volumes?
+#   Without volumes, all data is lost when the container is
+#   removed. Named volumes persist independently of containers,
+#   which is the real-world standard for stateful services.
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL 16 — primary relational database
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine          # alpine = smaller image, same features
+    container_name: eexchange-postgres
+    restart: unless-stopped            # auto-restart on crash / host reboot
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-eexchange}
+      POSTGRES_USER:     ${POSTGRES_USER:-eexchange_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "5432:5432"                    # host:container — change left side if 5432 is taken
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    # 🎓 WHY healthcheck?
+    #   Spring Boot tries to connect at startup. If Postgres isn't ready yet,
+    #   the app crashes on boot. healthcheck + depends_on(condition: healthy)
+    #   ensures the DB is accepting connections before the app starts.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eexchange_user} -d ${POSTGRES_DB:-eexchange}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ----------------------------------------------------------
+  # Redis 7.2 — ephemeral data: OTPs, rate-limit counters
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: eexchange-redis
+    restart: unless-stopped
+    # 🎓 WHY --requirepass?
+    #   Redis with no password is open to anyone on the network.
+    #   Even locally this is a good habit — it mirrors production
+    #   where Redis is always password-protected.
+    # 🎓 WHY --appendonly yes?
+    #   By default Redis only saves to disk every few minutes (RDB).
+    #   appendonly=yes enables AOF (Append-Only File) — every write
+    #   is logged to disk immediately. For OTPs this matters: if Redis
+    #   crashes mid-flow, the OTP counter survives restart.
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ----------------------------------------------------------
+# Named volumes — data survives container restarts/recreates
+# ----------------------------------------------------------
+volumes:
+  pg_data:
+    driver: local
+  redis_data:
+    driver: local

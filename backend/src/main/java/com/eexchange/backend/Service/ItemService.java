@@ -1,9 +1,7 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.DTO.UpdateItemRequest;
-import com.eexchange.backend.Entity.ItemStatus;
 import com.eexchange.backend.Entity.items;
-import com.eexchange.backend.Repository.ItemRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;

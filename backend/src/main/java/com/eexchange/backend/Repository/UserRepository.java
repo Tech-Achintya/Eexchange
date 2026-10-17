@@ -1,10 +1,18 @@
 package com.eexchange.backend.Repository;
 
 import com.eexchange.backend.Entity.User;
-import org.springframework.data.mongodb.repository.MongoRepository;
+import com.eexchange.backend.Entity.Enums.UserStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
-public interface UserRepository extends MongoRepository<User, String> {
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
+    boolean existsByEmail(String email);
+    Page<User> findByCollegeId(Long collegeId, Pageable pageable);
+    Page<User> findByStatus(UserStatus status, Pageable pageable);
 }

@@ -16,86 +16,193 @@
 	<groupId>com.eexchange</groupId>
 	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-
-	<name/>
-	<description/>
-	<url/>
-
-	<licenses>
-		<license/>
-	</licenses>
-
-	<developers>
-		<developer/>
-	</developers>
-
-	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
-	</scm>
+	<name>eexchange-backend</name>
+	<description>Eexchange — College Marketplace Backend</description>
 
 	<properties>
 		<java.version>21</java.version>
+		<!--
+		  🎓 WHY pin versions explicitly?
+		     Spring Boot's BOM manages most versions for you, but for
+		     libraries outside the BOM (jjwt, flyway-pg) you MUST pin
+		     them here so every developer and CI builds exactly the same
+		     artifact. "Latest" is not reproducible.
+		-->
+		<jjwt.version>0.11.5</jjwt.version>
+		<flyway.version>10.15.0</flyway.version>
 	</properties>
 
 	<dependencies>
 
-		<!-- Web -->
+		<!-- ================================================== -->
+		<!-- Web Layer                                           -->
+		<!-- ================================================== -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
-		<!-- MongoDB -->
+		<!-- ================================================== -->
+		<!-- Persistence — PostgreSQL + JPA + Flyway            -->
+		<!-- ================================================== -->
+
+		<!--
+		  🎓 spring-boot-starter-data-jpa brings in:
+		     • Hibernate ORM (the JPA implementation)
+		     • Spring Data JPA (repositories, @Transactional)
+		     • HikariCP connection pool (the fastest Java pool)
+		  We removed spring-boot-starter-data-mongodb entirely.
+		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-mongodb</artifactId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 
-		<!-- Security -->
+		<!-- PostgreSQL JDBC driver (runtime only — not needed at compile time) -->
+		<dependency>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!--
+		  🎓 WHY Flyway?
+		     Flyway is a database migration tool. Instead of running
+		     SQL manually, you write versioned migration scripts
+		     (V1__init_schema.sql, V2__add_index.sql ...).
+		     Flyway tracks which scripts have already run via a
+		     flyway_schema_history table, so each migration runs
+		     EXACTLY ONCE — across every environment (dev, staging, prod).
+		     This is how every production team manages schema changes.
+		-->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+			<version>${flyway.version}</version>
+		</dependency>
+		<!-- Flyway needs a separate PostgreSQL-specific module from v10+ -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+			<version>${flyway.version}</version>
+		</dependency>
+
+		<!-- ================================================== -->
+		<!-- Redis — OTPs, rate limiting, session counters       -->
+		<!-- ================================================== -->
+
+		<!--
+		  🎓 spring-boot-starter-data-redis brings in:
+		     • Lettuce (async, thread-safe Redis client)
+		     • Spring Data Redis (RedisTemplate, StringRedisTemplate)
+		     • Jackson for JSON serialization in Redis
+		  We use Redis ONLY for ephemeral data — never for relational data.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+
+		<!--
+		  🎓 WHY spring-boot-starter-cache?
+		     Enables @Cacheable/@CacheEvict on service methods.
+		     We'll use it to cache college lookups (they change rarely).
+		     This avoids hitting Postgres on every OTP request just
+		     to validate an email domain.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
+		</dependency>
+
+		<!-- ================================================== -->
+		<!-- Security                                            -->
+		<!-- ================================================== -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
-		<!-- Mail -->
+		<!-- ================================================== -->
+		<!-- Validation — @Valid, @NotBlank, @Email on DTOs     -->
+		<!-- ================================================== -->
+		<!--
+		  🎓 WHY validation as a separate concern?
+		     All incoming request data is untrusted. @Valid on your
+		     @RequestBody forces Spring to run the bean validation rules
+		     BEFORE your business logic runs — fail fast at the edge.
+		     This keeps service methods clean and avoids null-check clutter.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+
+		<!-- ================================================== -->
+		<!-- Email                                               -->
+		<!-- ================================================== -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
-		<!-- Lombok -->
+		<!-- ================================================== -->
+		<!-- JWT — JJWT 0.11.5 (same version, keep what works)  -->
+		<!-- ================================================== -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>${jjwt.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>${jjwt.version}</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- ================================================== -->
+		<!-- Developer Productivity                              -->
+		<!-- ================================================== -->
+
+		<!-- Lombok — eliminates boilerplate getters/setters/constructors -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
 		</dependency>
 
-		<!-- JWT -->
+		<!--
+		  🎓 WHY spring-boot-devtools?
+		     Enables hot-reload during local development — you don't need
+		     to restart the app on every code change.
+		     It's scoped 'runtime' + 'optional' so it NEVER ends up in
+		     the production JAR.
+		-->
 		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-api</artifactId>
-			<version>0.11.5</version>
-		</dependency>
-		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-impl</artifactId>
-			<version>0.11.5</version>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
 			<scope>runtime</scope>
-		</dependency>
-		<dependency>
-			<groupId>io.jsonwebtoken</groupId>
-			<artifactId>jjwt-jackson</artifactId>
-			<version>0.11.5</version>
-			<scope>runtime</scope>
+			<optional>true</optional>
 		</dependency>
 
-		<!-- Test -->
+		<!-- ================================================== -->
+		<!-- Testing                                             -->
+		<!-- ================================================== -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 
@@ -104,13 +211,25 @@
 	<build>
 		<plugins>
 
-			<!-- Spring Boot Plugin -->
+			<!-- Spring Boot Maven Plugin — creates the executable fat JAR -->
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<!--
+					  Exclude Lombok from the fat JAR — it's a compile-time
+					  annotation processor only, not a runtime dependency.
+					-->
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
 			</plugin>
 
-			<!-- Compiler Plugin -->
+			<!-- Compiler Plugin — Lombok annotation processing -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
@@ -121,7 +240,23 @@
 							<artifactId>lombok</artifactId>
 						</path>
 					</annotationProcessorPaths>
+					<!--
+					  🎓 Enable Java 21 preview features is intentionally OFF.
+					     Never use preview features in production — they're
+					     unstable and may be removed in the next Java release.
+					-->
 				</configuration>
+			</plugin>
+
+			<!--
+			  🎓 Flyway Maven Plugin (optional but useful)
+			     Lets you run `mvn flyway:info` to see migration status
+			     without starting the full Spring Boot app.
+			-->
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>${flyway.version}</version>
 			</plugin>
 
 		</plugins>

@@ -1,8 +1,6 @@
 package com.eexchange.backend.configuration;
 
 import com.eexchange.backend.Entity.User;
-import com.eexchange.backend.Entity.UserRole;
-import com.eexchange.backend.Repository.UserRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
