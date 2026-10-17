@@ -1,5 +1,6 @@
 package com.eexchange.backend.configuration;
 
+import com.eexchange.backend.Service.CustomUserDetailsService;
 import com.eexchange.backend.utils.JWTutil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -21,6 +22,12 @@ public class JWTfilter extends OncePerRequestFilter {
     public JWTfilter(JWTutil jwTutil, CustomUserDetailsService customUserDetailsService) {
         this.jwTutil = jwTutil;
         this.customUserDetailsService = customUserDetailsService;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return path.startsWith("/api/auth/") || path.startsWith("/auth/");
     }
 
     @Override

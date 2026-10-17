@@ -53,14 +53,21 @@ public class AuthService {
             throw new AppException("An account with this email already exists", HttpStatus.CONFLICT);
         }
 
-        // 2. Resolve college
+        // 2. Refuse to overwrite an in-flight pending signup session
+        String pendingKey = KEY_PENDING_SIGNUP + email;
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(pendingKey))) {
+            throw new AppException("A verification code was already sent for this email. Please verify the OTP or use resend.", HttpStatus.CONFLICT);
+        }
+
+        // 3. Resolve college
         CollegeDomainService.CollegeMatchResult matchResult = collegeDomainService.resolveCollege(email);
         College college = matchResult.getCollege();
 
-        // 3. Hash password
-        String hashedPassword = passwordEncoder.encode(request.getPassword());
+        // 4. Run the OTP step FIRST (enforces cooldown, hourly cap, and sends OTP)
+        otpService.generateAndSendOtp(email, "signup");
 
-        // 4. Save pending signup payload to Redis (TTL 10 min)
+        // 5. Only once OTP step succeeds, write pending signup data to Redis (TTL 10 min)
+        String hashedPassword = passwordEncoder.encode(request.getPassword());
         PendingSignupData pendingData = PendingSignupData.builder()
                 .email(email)
                 .name(request.getName().trim())
@@ -71,14 +78,11 @@ public class AuthService {
 
         try {
             String json = objectMapper.writeValueAsString(pendingData);
-            redisTemplate.opsForValue().set(KEY_PENDING_SIGNUP + email, json, Duration.ofMinutes(10));
+            redisTemplate.opsForValue().set(pendingKey, json, Duration.ofMinutes(10));
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize pending signup data for {}: {}", email, e.getMessage());
             throw new AppException("Failed to process signup request", HttpStatus.INTERNAL_SERVER_ERROR);
         }
-
-        // 5. Send signup OTP
-        otpService.generateAndSendOtp(email, "signup");
 
         return matchResult;
     }

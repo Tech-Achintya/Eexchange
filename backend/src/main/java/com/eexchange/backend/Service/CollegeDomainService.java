@@ -1,9 +1,9 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.DTO.CachedCollegeDomain;
 import com.eexchange.backend.Entity.College;
-import com.eexchange.backend.Entity.CollegeEmailDomain;
-import com.eexchange.backend.Repository.CollegeRepository;
 import com.eexchange.backend.Exception.AppException;
+import com.eexchange.backend.Repository.CollegeRepository;
 import com.eexchange.backend.utils.DisposableEmailChecker;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -35,25 +35,27 @@ public class CollegeDomainService {
             throw new AppException("Disposable email addresses are not permitted", HttpStatus.BAD_REQUEST);
         }
 
-        // Fetch registered domains from Caffeine cache
-        List<CollegeEmailDomain> allDomains = collegeDomainLoader.loadAllDomains();
+        // Fetch plain cached DTOs from Caffeine cache (no lazy loading risks)
+        List<CachedCollegeDomain> allDomains = collegeDomainLoader.loadAllDomains();
 
-        College matchedCollege = null;
+        CachedCollegeDomain bestMatch = null;
         int longestMatchLength = 0;
 
-        for (CollegeEmailDomain ced : allDomains) {
-            String registeredDomain = ced.getDomain().toLowerCase().trim();
+        for (CachedCollegeDomain ccd : allDomains) {
+            String registeredDomain = ccd.domain().toLowerCase().trim();
             // Match exact domain or subdomain (e.g. cs.iitd.ac.in matches iitd.ac.in)
             if (domain.equals(registeredDomain) || domain.endsWith("." + registeredDomain)) {
                 if (registeredDomain.length() > longestMatchLength) {
-                    matchedCollege = ced.getCollege();
+                    bestMatch = ccd;
                     longestMatchLength = registeredDomain.length();
                 }
             }
         }
 
-        if (matchedCollege != null && Boolean.TRUE.equals(matchedCollege.getIsActive())) {
-            return new CollegeMatchResult(matchedCollege, true);
+        if (bestMatch != null && bestMatch.isActive()) {
+            College college = collegeRepository.findById(bestMatch.collegeId())
+                    .orElseThrow(() -> new AppException("Matched college not found", HttpStatus.INTERNAL_SERVER_ERROR));
+            return new CollegeMatchResult(college, true);
         }
 
         // Fallback to "Others" college

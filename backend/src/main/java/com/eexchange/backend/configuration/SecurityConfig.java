@@ -1,9 +1,9 @@
 package com.eexchange.backend.configuration;
 
+import com.eexchange.backend.Service.CustomUserDetailsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -15,6 +15,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 public class SecurityConfig {
+
     private final JWTfilter jwtFilter;
     private final CustomUserDetailsService customUserDetailsService;
 
@@ -22,6 +23,7 @@ public class SecurityConfig {
         this.jwtFilter = jwtFilter;
         this.customUserDetailsService = customUserDetailsService;
     }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -34,8 +36,7 @@ public class SecurityConfig {
                 )
                 .sessionManagement(sess -> sess
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                )
-                .authenticationProvider(authenticationProvider());
+                );
 
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -45,7 +46,7 @@ public class SecurityConfig {
     @Bean
     public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
         org.springframework.web.cors.CorsConfiguration configuration = new org.springframework.web.cors.CorsConfiguration();
-        configuration.setAllowedOrigins(java.util.List.of("http://localhost:5173","https://eexchange-site.netlify.app","https://frontend-eexchange.vercel.app/"));
+        configuration.setAllowedOrigins(java.util.List.of("http://localhost:5173", "https://eexchange-site.netlify.app", "https://frontend-eexchange.vercel.app/"));
         configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(java.util.List.of("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);
@@ -54,21 +55,11 @@ public class SecurityConfig {
         return source;
     }
 
-    // ✅ Proper AuthenticationManager (Spring-managed)
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
-    // ✅ Separate provider bean (clean design)
-    @Bean
-    public DaoAuthenticationProvider authenticationProvider() {
-        // Pass customUserDetailsService directly into the constructor here:
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(customUserDetailsService);
-        // Remove provider.setUserDetailsPasswordService(...) completely.
-        provider.setPasswordEncoder(passwordEncoder());
-        return provider;
-    }
-    // ✅ Password encoder
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
