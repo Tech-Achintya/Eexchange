@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +35,7 @@ public class AuthService {
     private final StringRedisTemplate redisTemplate;
     private final PasswordEncoder passwordEncoder;
     private final JWTutil jwtUtil;
+    private final EmailService emailService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${app.login.max-failures:5}")
@@ -42,8 +44,23 @@ public class AuthService {
     @Value("${app.login.lockout-seconds:900}")
     private long loginLockoutSeconds;
 
+    @Value("${app.password-reset.ttl-seconds:120}")
+    private long passwordResetTtlSeconds;
+
+    @Value("${app.password-reset.base-url:http://localhost:5173/reset-password}")
+    private String passwordResetBaseUrl;
+
+    private static final String KEY_RESET_TOKEN = "pwd_reset:token:";
+
     private static final String KEY_PENDING_SIGNUP = "pending:signup:";
     private static final String KEY_LOGIN_FAIL = "login:fail:";
+
+    public boolean validateResetToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+        return Boolean.TRUE.equals(redisTemplate.hasKey("pwd_reset:token:" + token.trim()));
+    }
 
     public CollegeDomainService.CollegeMatchResult signup(SignupRequest request) {
         String email = request.getEmail().toLowerCase().trim();
@@ -217,27 +234,46 @@ public class AuthService {
             throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
         }
 
-        otpService.generateAndSendOtp(email, "reset");
+        // 1. Generate unique cryptographically secure token
+        String token = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+
+        // 2. Store in Redis with 2-minute (120s) expiration: pwd_reset:token:{token} -> email
+        redisTemplate.opsForValue().set(KEY_RESET_TOKEN + token, email, Duration.ofSeconds(passwordResetTtlSeconds));
+
+        // 3. Construct unique link
+        String resetLink = passwordResetBaseUrl + "?token=" + token;
+
+        // 4. Dispatch Email
+        emailService.sendPasswordResetLinkEmail(email, resetLink);
     }
 
+
     public void resetPassword(ResetPasswordRequest request) {
-        String email = request.getEmail().toLowerCase().trim();
-        String rawOtp = request.getOtp().trim();
+        String token = request.getToken().trim();
 
-        // 1. Verify OTP with purpose "reset"
-        otpService.verifyOtp(email, rawOtp, "reset");
+        // 1. Verify token exists in Redis
+        String redisKey = KEY_RESET_TOKEN + token;
+        String email = redisTemplate.opsForValue().get(redisKey);
 
-        // 2. Fetch user
+        if (email == null) {
+            throw new AppException("This password reset link has expired or is invalid. Please request a new one.", HttpStatus.BAD_REQUEST);
+        }
+
+        // 2. Fetch User
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        // 3. Hash and update password
+        // 3. Update password with BCrypt
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
 
-        // 4. Clear any existing login lockout
+        // 4. Invalidate token immediately (Single-use guarantee)
+        redisTemplate.delete(redisKey);
+
+        // 5. Clear any failed login lockouts
         redisTemplate.delete(KEY_LOGIN_FAIL + email);
     }
+
 
     public void resendOtp(ResendOtpRequest request) {
         String email = request.getEmail().toLowerCase().trim();

@@ -1,6 +1,7 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.DTO.*;
+import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Service.AuthService;
 import com.eexchange.backend.Service.CollegeDomainService;
 import jakarta.validation.Valid;
@@ -56,8 +57,28 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @RequestParam(required = false) String token,
+            @Valid @RequestBody ResetPasswordRequest request) {
+
+        if (token != null && !token.isBlank()) {
+            request.setToken(token);
+        }
+        if (request.getToken() == null || request.getToken().isBlank()) {
+            throw new AppException("Reset token is required", HttpStatus.BAD_REQUEST);
+        }
+
         authService.resetPassword(request);
         return ResponseEntity.ok(ApiResponse.ok("Password has been reset successfully. You can now log in with your new password."));
+    }
+
+
+    @GetMapping("/validate-reset-token")
+    public ResponseEntity<ApiResponse<Boolean>> validateResetToken(@RequestParam String token) {
+        boolean isValid = authService.validateResetToken(token);
+        if (!isValid) {
+            throw new AppException("Reset link has expired or is invalid.", HttpStatus.BAD_REQUEST);
+        }
+        return ResponseEntity.ok(ApiResponse.ok("Token is valid", true));
     }
 }
