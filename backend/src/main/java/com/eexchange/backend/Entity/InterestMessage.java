@@ -34,6 +34,9 @@ public class InterestMessage {
     @Builder.Default
     private Boolean isRead = false;
 
+    @Column(name = "contact_info", length = 255)
+    private String contactInfo;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

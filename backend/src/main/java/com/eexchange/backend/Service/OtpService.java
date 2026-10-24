@@ -72,7 +72,7 @@ public class OtpService {
         redisTemplate.delete("otp:attempts:" + normalizedPurpose + ":" + normalizedEmail);
 
         // 8. Send email
-        emailService.sendOtpEmail(normalizedEmail, otpString, normalizedPurpose);
+        emailService.sendOtpEmail(normalizedEmail, otpString, normalizedPurpose,() -> redisTemplate.delete(cooldownKey));
     }
 
     public void verifyOtp(String email, String rawOtp, String purpose) {

@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import jakarta.annotation.PostConstruct;
 
 @Service
 @RequiredArgsConstructor
@@ -44,14 +45,31 @@ public class AuthService {
     @Value("${app.login.lockout-seconds:900}")
     private long loginLockoutSeconds;
 
-    @Value("${app.password-reset.ttl-seconds:120}")
+    @Value("${app.password-reset.ttl-seconds:900}")
     private long passwordResetTtlSeconds;
+
+    @Value("${app.password-reset.cooldown-seconds:60}")
+    private long passwordResetCooldownSeconds;
+
+    @Value("${app.password-reset.hourly-max:5}")
+    private int passwordResetHourlyMax;
+
+    private String dummyPasswordHash;
+
+    @PostConstruct
+    void initDummyPasswordHash() {
+        this.dummyPasswordHash = passwordEncoder.encode(
+                "dummy-password-for-timing-" + UUID.randomUUID()
+        );
+    }
 
     @Value("${app.password-reset.base-url:http://localhost:5173/reset-password}")
     private String passwordResetBaseUrl;
 
     private static final String KEY_RESET_TOKEN = "pwd_reset:token:";
-
+    private static final String KEY_RESET_ACTIVE = "pwd_reset:active:";
+    private static final String KEY_RESET_COOLDOWN = "pwd_reset:cooldown:";
+    private static final String KEY_RESET_HOURLY = "pwd_reset:hourly:";
     private static final String KEY_PENDING_SIGNUP = "pending:signup:";
     private static final String KEY_LOGIN_FAIL = "login:fail:";
 
@@ -137,7 +155,7 @@ public class AuthService {
                 .passwordHash(pendingData.getPasswordHash())
                 .college(college)
                 .isCollegeVerified(pendingData.isCollegeVerified())
-                .emailVerifiedAt(pendingData.isCollegeVerified() ? Instant.now() : null)
+                .emailVerifiedAt(Instant.now())
                 .status(UserStatus.ACTIVE)
                 .lastLoginAt(Instant.now())
                 .build();
@@ -165,52 +183,67 @@ public class AuthService {
                 .build();
     }
 
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        // 1. Check login failure lockout
+        // 1. Check failure lockout
         String failKey = KEY_LOGIN_FAIL + email;
         String failCountStr = redisTemplate.opsForValue().get(failKey);
         int failCount = failCountStr != null ? Integer.parseInt(failCountStr) : 0;
+
         if (failCount >= maxLoginFailures) {
-            throw new AppException("Account temporarily locked due to repeated failed logins. Please try again in 15 minutes.", HttpStatus.TOO_MANY_REQUESTS);
+            long minutes = Math.max(1, loginLockoutSeconds / 60);
+            throw new AppException(
+                    "Account temporarily locked due to repeated failed logins. Please try again in "
+                            + minutes + " minutes.",
+                    HttpStatus.TOO_MANY_REQUESTS
+            );
         }
 
-        // 2. Lookup user
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> {
-                    recordFailedLogin(email, failKey, failCount);
-                    return new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
-                });
+        // 2. Always run BCrypt, even for unknown emails
+        User user = userRepository.findByEmail(email).orElse(null);
+        String storedHash = (user != null && user.getPasswordHash() != null)
+                ? user.getPasswordHash()
+                : dummyPasswordHash;
 
-        // 3. Check account status
-        if (user.getStatus() == UserStatus.PERM_BLOCKED) {
-            throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
-        }
-        if (user.getStatus() == UserStatus.TEMP_BLOCKED) {
-            if (user.getBlockedUntil() != null && user.getBlockedUntil().isAfter(Instant.now())) {
-                throw new AppException("Account temporarily suspended until: " + user.getBlockedUntil(), HttpStatus.FORBIDDEN);
-            }
-        }
+        boolean passwordMatches = passwordEncoder.matches(request.getPassword(), storedHash);
 
-        // 4. Validate password
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        // 3. Do not reveal block status unless the password is correct
+        if (user == null || !passwordMatches) {
             recordFailedLogin(email, failKey, failCount);
             throw new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
 
-        // 5. Successful login: clear lockout counter
+        if (user.getStatus() == UserStatus.PERM_BLOCKED) {
+            throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
+        }
+
+        if (user.getStatus() == UserStatus.TEMP_BLOCKED
+                && user.getBlockedUntil() != null
+                && user.getBlockedUntil().isAfter(Instant.now())) {
+            throw new AppException(
+                    "Account temporarily suspended until: " + user.getBlockedUntil(),
+                    HttpStatus.FORBIDDEN
+            );
+        }
+
+        // 4. Successful login
         redisTemplate.delete(failKey);
 
-        // 6. Update last login
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
 
-        // 7. Update Redis status cache
-        redisTemplate.opsForValue().set("user:status:" + user.getId(), user.getStatus().name());
+        redisTemplate.opsForValue().set(
+                "user:status:" + user.getId(),
+                user.getStatus().name()
+        );
 
-        // 8. Generate JWT
-        String token = jwtUtil.generateToken(user.getEmail(), user.getId(), user.getCollege().getId());
+        String token = jwtUtil.generateToken(
+                user.getEmail(),
+                user.getId(),
+                user.getCollege().getId()
+        );
 
         return AuthResponse.builder()
                 .userId(user.getId())
@@ -227,72 +260,125 @@ public class AuthService {
     public void forgotPassword(ForgotPasswordRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException("No account registered with this email", HttpStatus.NOT_FOUND));
-
-        if (user.getStatus() == UserStatus.PERM_BLOCKED) {
-            throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
+        // 1. Cooldown
+        String cooldownKey = KEY_RESET_COOLDOWN + email;
+        Long cooldown = redisTemplate.getExpire(cooldownKey);
+        if (cooldown != null && cooldown > 0) {
+            throw new AppException(
+                    "Please wait " + cooldown + " seconds before requesting another reset link.",
+                    HttpStatus.TOO_MANY_REQUESTS
+            );
         }
 
-        // 1. Generate unique cryptographically secure token
-        String token = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
+        // 2. Hourly cap
+        String hourlyKey = KEY_RESET_HOURLY + email;
+        String hourlyStr = redisTemplate.opsForValue().get(hourlyKey);
+        int hourlyCount = hourlyStr != null ? Integer.parseInt(hourlyStr) : 0;
 
-        // 2. Store in Redis with 2-minute (120s) expiration: pwd_reset:token:{token} -> email
-        redisTemplate.opsForValue().set(KEY_RESET_TOKEN + token, email, Duration.ofSeconds(passwordResetTtlSeconds));
+        if (hourlyCount >= passwordResetHourlyMax) {
+            throw new AppException(
+                    "Hourly password reset limit reached. Try again later.",
+                    HttpStatus.TOO_MANY_REQUESTS
+            );
+        }
 
-        // 3. Construct unique link
+        redisTemplate.opsForValue().set(
+                cooldownKey,
+                "1",
+                Duration.ofSeconds(passwordResetCooldownSeconds)
+        );
+        redisTemplate.opsForValue().increment(hourlyKey);
+        if (hourlyCount == 0) {
+            redisTemplate.expire(hourlyKey, Duration.ofHours(1));
+        }
+
+        // 3. Generic behaviour for unknown / blocked accounts
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) {
+            return;
+        }
+
+        // 4. Revoke the previous active token
+        String activeKey = KEY_RESET_ACTIVE + user.getId();
+        String previousToken = redisTemplate.opsForValue().get(activeKey);
+        if (previousToken != null) {
+            redisTemplate.delete(KEY_RESET_TOKEN + previousToken);
+        }
+
+        // 5. Issue exactly one active token
+        String token = UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
+        String tokenKey = KEY_RESET_TOKEN + token;
+
+        redisTemplate.opsForValue().set(
+                tokenKey,
+                email,
+                Duration.ofSeconds(passwordResetTtlSeconds)
+        );
+        redisTemplate.opsForValue().set(
+                activeKey,
+                token,
+                Duration.ofSeconds(passwordResetTtlSeconds)
+        );
+
         String resetLink = passwordResetBaseUrl + "?token=" + token;
 
-        // 4. Dispatch Email
-        emailService.sendPasswordResetLinkEmail(email, resetLink);
+        emailService.sendPasswordResetLinkEmail(email, resetLink, () -> {
+            redisTemplate.delete(tokenKey);
+            redisTemplate.delete(activeKey);
+            redisTemplate.delete(cooldownKey);
+        });
     }
-
 
     public void resetPassword(ResetPasswordRequest request) {
         String token = request.getToken().trim();
-
-        // 1. Verify token exists in Redis
         String redisKey = KEY_RESET_TOKEN + token;
-        String email = redisTemplate.opsForValue().get(redisKey);
 
+        String email = redisTemplate.opsForValue().get(redisKey);
         if (email == null) {
-            throw new AppException("This password reset link has expired or is invalid. Please request a new one.", HttpStatus.BAD_REQUEST);
+            throw new AppException(
+                    "This password reset link has expired or is invalid. Please request a new one.",
+                    HttpStatus.BAD_REQUEST
+            );
         }
 
-        // 2. Fetch User
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
-
-        // 3. Update password with BCrypt
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            redisTemplate.delete(redisKey);
+            throw new AppException(
+                    "This password reset link has expired or is invalid. Please request a new one.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
-
-        // 4. Invalidate token immediately (Single-use guarantee)
         redisTemplate.delete(redisKey);
-
-        // 5. Clear any failed login lockouts
+        redisTemplate.delete(KEY_RESET_ACTIVE + user.getId());
         redisTemplate.delete(KEY_LOGIN_FAIL + email);
     }
 
-
     public void resendOtp(ResendOtpRequest request) {
         String email = request.getEmail().toLowerCase().trim();
-        String purpose = request.getPurpose().toLowerCase().trim();
+        String purpose = request.getPurpose() == null
+                ? "signup"
+                : request.getPurpose().toLowerCase().trim();
 
-        if ("signup".equals(purpose)) {
-            String pendingKey = KEY_PENDING_SIGNUP + email;
-            if (Boolean.FALSE.equals(redisTemplate.hasKey(pendingKey))) {
-                throw new AppException("Signup session expired or not found. Please initiate signup again.", HttpStatus.BAD_REQUEST);
-            }
-        } else if ("reset".equals(purpose)) {
-            User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new AppException("No account registered with this email", HttpStatus.NOT_FOUND));
-            if (user.getStatus() == UserStatus.PERM_BLOCKED) {
-                throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
-            }
+        if (!"signup".equals(purpose)) {
+            throw new AppException(
+                    "Only signup OTP resend is supported",
+                    HttpStatus.BAD_REQUEST
+            );
         }
 
-        otpService.generateAndSendOtp(email, purpose);
+        String pendingKey = KEY_PENDING_SIGNUP + email;
+        if (!Boolean.TRUE.equals(redisTemplate.hasKey(pendingKey))) {
+            throw new AppException(
+                    "Signup session expired or not found. Please initiate signup again.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        otpService.generateAndSendOtp(email, "signup");
     }
 
     private void recordFailedLogin(String email, String failKey, int currentFails) {

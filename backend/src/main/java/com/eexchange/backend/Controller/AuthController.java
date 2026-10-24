@@ -15,6 +15,7 @@ import java.util.Map;
 @RestController
 @RequestMapping({"/api/auth", "/auth"})
 @RequiredArgsConstructor
+
 public class AuthController {
 
     private final AuthService authService;
@@ -47,7 +48,9 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         authService.forgotPassword(request);
-        return ResponseEntity.ok(ApiResponse.ok("Password reset OTP sent to your email."));
+        return ResponseEntity.ok(ApiResponse.ok(
+                "If an account exists for that email, a password reset link has been sent."
+        ));
     }
 
     @PostMapping("/resend-otp")

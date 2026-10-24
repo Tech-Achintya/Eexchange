@@ -13,6 +13,6 @@ public class ResendOtpRequest {
     private String email;
 
     @NotBlank(message = "Purpose is required")
-    @Pattern(regexp = "^(signup|reset)$", message = "Purpose must be either 'signup' or 'reset'")
+    @Pattern(regexp = "^signup$", message = "Purpose must be 'signup'")
     private String purpose;
 }

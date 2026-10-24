@@ -84,6 +84,14 @@ public class Post {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+
+    @Column(name = "hidden_reason", length = 30)
+    private String hiddenReason; // 'USER_BLOCKED', 'REPORTS', 'ADMIN'
+
+    @Column(name = "moderation_attempts", nullable = false)
+    @Builder.Default
+    private Integer moderationAttempts = 0;
+
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @Builder.Default

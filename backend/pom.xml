@@ -9,7 +9,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.4</version>
+		<version>3.5.6</version>
 		<relativePath/>
 	</parent>
 
@@ -29,7 +29,6 @@
 		     artifact. "Latest" is not reproducible.
 		-->
 		<jjwt.version>0.11.5</jjwt.version>
-		<flyway.version>10.15.0</flyway.version>
 	</properties>
 
 	<dependencies>
@@ -78,13 +77,11 @@
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
-			<version>${flyway.version}</version>
 		</dependency>
 		<!-- Flyway needs a separate PostgreSQL-specific module from v10+ -->
 		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-database-postgresql</artifactId>
-			<version>${flyway.version}</version>
+		<groupId>org.flywaydb</groupId>
+		<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
 
 		<!-- ================================================== -->
@@ -140,14 +137,6 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
-		</dependency>
-
-		<!-- ================================================== -->
-		<!-- Email                                               -->
-		<!-- ================================================== -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-mail</artifactId>
 		</dependency>
 
 		<!-- ================================================== -->

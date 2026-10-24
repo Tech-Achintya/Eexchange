@@ -23,6 +23,41 @@ public class JWTutil {
     @Value("${app.jwt.expiry-ms:36000000}")
     private long expiryMs;
 
+    @Value("${app.admin.jwt.secret}")
+    private String adminSecretKey;
+
+    @Value("${app.admin.jwt.expiry-ms:7200000}")
+    private long adminExpiryMs;
+
+    // --- Admin Token Generation ---
+    public String generateAdminToken(String username, Long adminId, String role) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("adminId", adminId);
+        claims.put("role", role);
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + adminExpiryMs))
+                .signWith(Keys.hmacShaKeyFor(adminSecretKey.getBytes()), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    // --- Admin Claims & Validation ---
+    public Claims extractAdminClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(Keys.hmacShaKeyFor(adminSecretKey.getBytes()))
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+
+    public String extractRole(String token, boolean isAdmin) {
+        Claims claims = isAdmin ? extractAdminClaims(token) : extractAllClaims(token);
+        Object role = claims.get("role");
+        return role != null ? role.toString() : null;
+    }
+
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
     }
