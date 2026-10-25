@@ -17,14 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
-@RequestMapping({"/admin/auth", "/api/admin/auth"})
+@RequestMapping("/api/admin/auth")
 public class AdminAuthController {
 
     private final AdminRepository adminRepository;
     private final PasswordEncoder passwordEncoder;
     private final JWTutil jwtUtil;
+    private final String dummyPasswordHash;
 
     public AdminAuthController(AdminRepository adminRepository,
                                PasswordEncoder passwordEncoder,
@@ -32,28 +34,39 @@ public class AdminAuthController {
         this.adminRepository = adminRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.dummyPasswordHash = passwordEncoder.encode(
+                "dummy-admin-password-" + UUID.randomUUID()
+        );
     }
 
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> adminLogin(@Valid @RequestBody AdminLoginRequest request) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> adminLogin(
+            @Valid @RequestBody AdminLoginRequest request) {
+
         String identifier = request.getUsernameOrEmail().trim();
 
-        Admin admin = adminRepository.findByEmail(identifier)
+        Admin admin = adminRepository.findByEmail(identifier.toLowerCase())
                 .or(() -> adminRepository.findByUsername(identifier))
-                .orElseThrow(() -> new AppException("Invalid admin credentials", HttpStatus.UNAUTHORIZED));
+                .orElse(null);
+
+        // Always run BCrypt, even for unknown admins.
+        String storedHash = admin != null ? admin.getPasswordHash() : dummyPasswordHash;
+        boolean passwordMatches = passwordEncoder.matches(request.getPassword(), storedHash);
+
+        // Do not reveal account state unless the password is correct.
+        if (admin == null || !passwordMatches) {
+            throw new AppException("Invalid admin credentials", HttpStatus.UNAUTHORIZED);
+        }
 
         if (!Boolean.TRUE.equals(admin.getIsActive())) {
             throw new AppException("Admin account is deactivated.", HttpStatus.FORBIDDEN);
         }
 
-        if (!passwordEncoder.matches(request.getPassword(), admin.getPasswordHash())) {
-            throw new AppException("Invalid admin credentials", HttpStatus.UNAUTHORIZED);
-        }
-
         admin.setLastLoginAt(Instant.now());
         adminRepository.save(admin);
 
-        String token = jwtUtil.generateAdminToken(admin.getUsername(), admin.getId(), "ROLE_ADMIN");
+        String role = "ROLE_" + admin.getRole().name();
+        String token = jwtUtil.generateAdminToken(admin.getUsername(), admin.getId(), role);
 
         return ResponseEntity.ok(ApiResponse.ok("Admin authenticated successfully", Map.of(
                 "token", token,

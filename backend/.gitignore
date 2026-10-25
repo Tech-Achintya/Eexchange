@@ -33,3 +33,6 @@ build/
 
 ### Secrets — .env is NEVER committed; application.properties is safe (no secrets) ###
 .env
+
+### IntelliJ HTTP Client secrets ###
+http/http-client.private.env.json

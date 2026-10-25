@@ -8,6 +8,17 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface RateLimit {
+
+    enum Scope {
+        USER,
+        IP
+    }
+
     int limit() default 10;
+
     int windowSeconds() default 60;
+
+    String name() default "";
+
+    Scope scope() default Scope.USER;
 }

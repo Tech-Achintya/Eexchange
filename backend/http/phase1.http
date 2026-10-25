@@ -1,0 +1,132 @@
+### ============================================================
+### Phase 1 manual checks
+### Environment: select "dev" in the HTTP Client env selector.
+### Secrets come from http-client.private.env.json (gitignored).
+### ============================================================
+
+### 1. User signup
+### Expected: 201 Created.
+### In dev, the 6-digit OTP is printed in the backend log:
+###   [dev] OTP for <email> (signup) is: 123456
+POST {{baseUrl}}/api/auth/signup
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "name": "{{userName}}",
+  "password": "{{userPassword}}"
+}
+
+### 2. Verify signup OTP
+### Replace the OTP below with the one from the backend log.
+### Expected: 200 OK, data.token present.
+POST {{baseUrl}}/api/auth/verify-otp
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "otp": "REPLACE_WITH_6_DIGIT_OTP"
+}
+
+> {%
+    client.global.set("userToken", response.body.data.token);
+    client.global.set("userId", response.body.data.userId);
+%}
+
+### 3. User login
+### Expected: 200 OK, data.token present.
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "password": "{{userPassword}}"
+}
+
+> {%
+    client.global.set("userToken", response.body.data.token);
+    client.global.set("userId", response.body.data.userId);
+%}
+
+### 4. Admin login
+### Expected: 200 OK, data.token and data.role present.
+### Requires APP_ADMIN_USERNAME / APP_ADMIN_PASSWORD in the backend Run Configuration,
+### and an empty admins table on first startup so AdminBootstrap creates the account.
+POST {{baseUrl}}/api/admin/auth/login
+Content-Type: application/json
+
+{
+  "usernameOrEmail": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+> {%
+    client.global.set("adminToken", response.body.data.token);
+%}
+
+### 5. Admin route with NO token
+### Expected: 401 Unauthorized (JSON "Authentication required").
+GET {{baseUrl}}/api/admin/ping
+
+### 6. Admin route with a USER token
+### Expected: 401 Unauthorized (user token is signed with the user secret).
+GET {{baseUrl}}/api/admin/ping
+Authorization: Bearer {{userToken}}
+
+### 7. Admin route with an ADMIN token
+### Expected: 404 Not Found. There is no /api/admin/ping handler, but reaching 404
+### proves the admin token passed authentication and authorization.
+GET {{baseUrl}}/api/admin/ping
+Authorization: Bearer {{adminToken}}
+
+### 8. ADMIN token on a user route
+### Expected: 401 Unauthorized (admin token is signed with the admin secret).
+GET {{baseUrl}}/api/saved-posts
+Authorization: Bearer {{adminToken}}
+
+### 9. Protected user route with a USER token
+### Expected: 200 OK.
+GET {{baseUrl}}/api/saved-posts
+Authorization: Bearer {{userToken}}
+
+### 10. Rate limit
+### Auth routes allow 20 requests/minute per IP.
+### Run this block repeatedly. The 21st request in the same minute should be:
+###   429 Too Many Requests + Retry-After header.
+### Earlier auth requests in this file also count toward the same limit.
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "password": "wrong-password"
+}
+
+### 11. X-Request-ID echo
+### Expected: 200 OK, and the response header X-Request-ID is exactly test-12345678.
+GET {{baseUrl}}/api/saved-posts
+Authorization: Bearer {{userToken}}
+X-Request-ID: test-12345678
+
+### 12. Invalid X-Request-ID is replaced
+### Expected: 200 OK, and X-Request-ID is a generated 32-character hex value
+### (the incoming "bad" is too short).
+GET {{baseUrl}}/api/saved-posts
+Authorization: Bearer {{userToken}}
+X-Request-ID: bad
+
+### 13. Blocked-user flow
+### 1) In IntelliJ Database tool window run:
+###      UPDATE users SET status = 'PERM_BLOCKED' WHERE email = '{{userEmail}}';
+### 2) JWTfilter caches user:status:<userId> in Redis for 1 hour. Restart the Redis
+###    container from IntelliJ's Services/Docker window (or delete the key) so the
+###    change is visible immediately.
+### 3) Run this request.
+### Expected: 403 Forbidden, message contains "permanently suspended".
+GET {{baseUrl}}/api/saved-posts
+Authorization: Bearer {{userToken}}
+
+### 14. Restore the user after the blocked-user check
+### In the IntelliJ Database tool window run:
+###      UPDATE users SET status = 'ACTIVE' WHERE email = '{{userEmail}}';
+### Then restart Redis again to clear the cached PERM_BLOCKED status.

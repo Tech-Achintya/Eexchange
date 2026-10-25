@@ -12,17 +12,21 @@ import java.util.List;
 public class WebMvcConfig implements WebMvcConfigurer {
 
     private final CurrentUserArgumentResolver currentUserArgumentResolver;
+    private final AdminArgumentResolver adminArgumentResolver;
     private final RateLimitInterceptor rateLimitInterceptor;
 
     public WebMvcConfig(CurrentUserArgumentResolver currentUserArgumentResolver,
+                        AdminArgumentResolver adminArgumentResolver,
                         RateLimitInterceptor rateLimitInterceptor) {
         this.currentUserArgumentResolver = currentUserArgumentResolver;
+        this.adminArgumentResolver = adminArgumentResolver;
         this.rateLimitInterceptor = rateLimitInterceptor;
     }
 
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
         resolvers.add(currentUserArgumentResolver);
+        resolvers.add(adminArgumentResolver);
     }
 
     @Override

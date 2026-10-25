@@ -70,6 +70,14 @@ public class JWTutil {
         return null;
     }
 
+    public Long extractAdminId(String token) {
+        Object adminId = extractAdminClaims(token).get("adminId");
+        if (adminId instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
+    }
+
     public Long extractCollegeId(String token) {
         Object collegeId = extractAllClaims(token).get("collegeId");
         if (collegeId instanceof Number number) {

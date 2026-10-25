@@ -2,6 +2,7 @@ package com.eexchange.backend.Exception;
 import com.eexchange.backend.DTO.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -25,6 +26,15 @@ public class GlobalExceptionHandler {
             AppException ex) {
         return ResponseEntity
                 .status(ex.getStatus())
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRateLimitExceeded(
+            RateLimitExceededException ex) {
+
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
                 .body(ApiResponse.error(ex.getMessage()));
     }
 
