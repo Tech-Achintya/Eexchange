@@ -6,9 +6,12 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 
 @Repository
 public interface SavedPostRepository extends JpaRepository<SavedPost, Long> {
@@ -36,4 +39,8 @@ public interface SavedPostRepository extends JpaRepository<SavedPost, Long> {
             ON CONFLICT ON CONSTRAINT uq_saved_posts_user_post DO NOTHING
             """, nativeQuery = true)
     int insertIfAbsent(@Param("userId") Long userId, @Param("postId") Long postId);
+
+    @Modifying
+    @Query("delete from SavedPost sp where sp.user.id = :userId")
+    int deleteAllByUserId(@Param("userId") Long userId);
 }

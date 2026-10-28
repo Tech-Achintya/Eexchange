@@ -1,0 +1,166 @@
+### ============================================================
+### Phase 2 manual checks
+### Select the "dev" environment in the HTTP Client.
+### Secrets come from http-client.private.env.json (gitignored).
+### Use a THROW-AWAY user: the delete step destroys it.
+### ============================================================
+
+### 1. Public colleges — no token
+### Expected: 200 OK, data[] sorted by name.
+GET {{baseUrl}}/api/colleges
+
+### 2. Public categories — no token
+### Expected: 200 OK.
+GET {{baseUrl}}/api/categories
+
+### 3. Login
+### Expected: 200 OK, data.token present.
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "password": "{{userPassword}}"
+}
+
+> {%
+    client.global.set("oldToken", response.body.data.token);
+%}
+
+### 4. GET /me
+### Expected: 200 OK, data.email/name/college present.
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+
+### 5. PATCH /me — valid name
+### Expected: 200 OK, data.name = "Updated Student".
+PATCH {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "name": "  Updated Student  "
+}
+
+### 6. PATCH /me — blank name
+### Expected: 400 Bad Request (validation error).
+PATCH {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "name": "   "
+}
+
+### 7. PATCH /me — too short
+### Expected: 400 Bad Request.
+PATCH {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "name": "a"
+}
+
+### 8. PATCH /me — too long (101 chars)
+### Expected: 400 Bad Request.
+PATCH {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+
+### 9. Change password — wrong old password
+### Expected: 400 Bad Request.
+POST {{baseUrl}}/api/users/me/change-password
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "oldPassword": "not-the-password",
+  "newPassword": "newpass123"
+}
+
+### 10. Change password — same password
+### Expected: 400 Bad Request.
+POST {{baseUrl}}/api/users/me/change-password
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "oldPassword": "{{userPassword}}",
+  "newPassword": "{{userPassword}}"
+}
+
+### 11. Change password — weak new password
+### Expected: 400 Bad Request.
+POST {{baseUrl}}/api/users/me/change-password
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "oldPassword": "{{userPassword}}",
+  "newPassword": "short"
+}
+
+### 12. Change password — success
+### Expected: 200 OK, data.token is a fresh token.
+POST {{baseUrl}}/api/users/me/change-password
+Authorization: Bearer {{oldToken}}
+Content-Type: application/json
+
+{
+  "oldPassword": "{{userPassword}}",
+  "newPassword": "newpass123"
+}
+
+> {%
+    client.global.set("newToken", response.body.data.token);
+%}
+
+### 13. Old token after password change
+### Expected: 401 Unauthorized ("Session expired").
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{oldToken}}
+
+### 14. Fresh token after password change
+### Expected: 200 OK.
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{newToken}}
+
+### 15. Delete account — wrong password
+### Expected: 400 Bad Request.
+DELETE {{baseUrl}}/api/users/me
+Authorization: Bearer {{newToken}}
+Content-Type: application/json
+
+{
+  "password": "wrong-password"
+}
+
+### 16. Delete account — correct password (now "newpass123")
+### Expected: 200 OK.
+DELETE {{baseUrl}}/api/users/me
+Authorization: Bearer {{newToken}}
+Content-Type: application/json
+
+{
+  "password": "newpass123"
+}
+
+### 17. Login with the former email after deletion
+### Expected: 401 Unauthorized.
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "password": "newpass123"
+}
+
+### 18. Old token after deletion
+### Expected: 401 Unauthorized.
+GET {{baseUrl}}/api/users/me
+Authorization: Bearer {{newToken}}

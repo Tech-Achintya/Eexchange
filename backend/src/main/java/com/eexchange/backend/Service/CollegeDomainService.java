@@ -4,7 +4,7 @@ import com.eexchange.backend.DTO.CachedCollegeDomain;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.CollegeRepository;
-import com.eexchange.backend.utils.DisposableEmailChecker;
+import com.eexchange.backend.Utils.DisposableEmailChecker;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;

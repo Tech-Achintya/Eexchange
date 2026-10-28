@@ -14,4 +14,6 @@ public interface InterestMessageRepository extends JpaRepository<InterestMessage
     Page<InterestMessage> findBySenderIdOrderByCreatedAtDesc(Long senderId, Pageable pageable);
     boolean existsByPostIdAndSenderId(Long postId, Long senderId);
     Optional<InterestMessage> findByPostIdAndSenderId(Long postId, Long senderId);
+
+    void deleteAllBySenderId(Long userId);
 }

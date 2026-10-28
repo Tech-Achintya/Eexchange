@@ -1,7 +1,7 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Exception.AppException;
-import com.eexchange.backend.utils.OtpHashUtil;
+import com.eexchange.backend.Utils.OtpHashUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;

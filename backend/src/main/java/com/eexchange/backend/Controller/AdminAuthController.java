@@ -5,7 +5,7 @@ import com.eexchange.backend.DTO.ApiResponse;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.AdminRepository;
-import com.eexchange.backend.utils.JWTutil;
+import com.eexchange.backend.Utils.JWTutil;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

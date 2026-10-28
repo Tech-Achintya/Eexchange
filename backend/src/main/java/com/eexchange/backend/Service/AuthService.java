@@ -7,7 +7,7 @@ import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.CollegeRepository;
 import com.eexchange.backend.Repository.UserRepository;
-import com.eexchange.backend.utils.JWTutil;
+import com.eexchange.backend.Utils.JWTutil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

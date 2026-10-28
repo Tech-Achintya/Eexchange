@@ -4,7 +4,7 @@ import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;
 import com.eexchange.backend.Repository.AdminRepository;
-import com.eexchange.backend.utils.JWTutil;
+import com.eexchange.backend.Utils.JWTutil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
