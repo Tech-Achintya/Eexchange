@@ -1,6 +1,6 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.DTO.CategoryResponse;
+import com.eexchange.backend.DTO.Response.CategoryResponse;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Repository.CategoryRepository;
 import lombok.RequiredArgsConstructor;

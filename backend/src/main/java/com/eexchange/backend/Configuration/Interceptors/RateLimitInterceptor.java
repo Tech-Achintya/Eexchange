@@ -31,26 +31,28 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        RateLimit rateLimit = handlerMethod.getMethodAnnotation(RateLimit.class);
-        if (rateLimit == null) {
+        RateLimit[] rateLimits = handlerMethod.getMethod().getAnnotationsByType(RateLimit.class);
+        if (rateLimits.length == 0) {
             return true;
         }
 
-        String name = rateLimit.name().isBlank()
-                ? handlerMethod.getBeanType().getSimpleName()
-                + "." + handlerMethod.getMethod().getName()
-                : rateLimit.name();
+        for (RateLimit rateLimit : rateLimits) {
+            String name = rateLimit.name().isBlank()
+                    ? handlerMethod.getBeanType().getSimpleName()
+                    + "." + handlerMethod.getMethod().getName()
+                    : rateLimit.name();
 
-        String identifier = resolveIdentifier(request, rateLimit.scope());
-        String key = "ratelimit:" + name + ":" + identifier;
+            String identifier = resolveIdentifier(request, rateLimit.scope());
+            String key = "ratelimit:" + name + ":" + identifier;
 
-        RedisRateLimiter.RateLimitResult result =
-                rateLimiter.consume(key, rateLimit.limit(), rateLimit.windowSeconds());
+            RedisRateLimiter.RateLimitResult result =
+                    rateLimiter.consume(key, rateLimit.limit(), rateLimit.windowSeconds());
 
-        if (!result.allowed()) {
-            throw new RateLimitExceededException(
-                    "Action rate limit reached. Please try again shortly.",
-                    result.retryAfterSeconds());
+            if (!result.allowed()) {
+                throw new RateLimitExceededException(
+                        "Action rate limit reached. Please try again shortly.",
+                        result.retryAfterSeconds());
+            }
         }
 
         return true;

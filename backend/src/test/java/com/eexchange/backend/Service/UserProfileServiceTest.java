@@ -1,8 +1,8 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.DTO.ChangePasswordRequest;
-import com.eexchange.backend.DTO.DeleteAccountRequest;
-import com.eexchange.backend.DTO.TokenResponse;
+import com.eexchange.backend.DTO.Request.ChangePasswordRequest;
+import com.eexchange.backend.DTO.Request.DeleteAccountRequest;
+import com.eexchange.backend.DTO.Response.TokenResponse;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;

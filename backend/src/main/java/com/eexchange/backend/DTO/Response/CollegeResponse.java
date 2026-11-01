@@ -1,4 +1,4 @@
-package com.eexchange.backend.DTO;
+package com.eexchange.backend.DTO.Response;
 
 public record CollegeResponse(
         Long id,

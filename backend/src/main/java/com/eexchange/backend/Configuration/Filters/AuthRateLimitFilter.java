@@ -1,6 +1,6 @@
 package com.eexchange.backend.Configuration.Filters;
 
-import com.eexchange.backend.DTO.ApiResponse;
+import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.Configuration.RedisRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;

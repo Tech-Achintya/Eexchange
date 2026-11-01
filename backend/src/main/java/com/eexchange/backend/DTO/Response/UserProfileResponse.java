@@ -1,4 +1,4 @@
-package com.eexchange.backend.DTO;
+package com.eexchange.backend.DTO.Response;
 
 import com.eexchange.backend.Entity.Enums.UserStatus;
 

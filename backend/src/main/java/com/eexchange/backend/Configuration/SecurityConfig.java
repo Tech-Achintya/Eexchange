@@ -1,6 +1,6 @@
 package com.eexchange.backend.Configuration;
 
-import com.eexchange.backend.DTO.ApiResponse;
+import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.Configuration.Filters.AuthRateLimitFilter;
 import com.eexchange.backend.Configuration.Filters.JWTfilter;
 import com.fasterxml.jackson.databind.ObjectMapper;

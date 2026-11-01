@@ -1,12 +1,12 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.ApiResponse;
-import com.eexchange.backend.DTO.ChangePasswordRequest;
-import com.eexchange.backend.DTO.DeleteAccountRequest;
-import com.eexchange.backend.DTO.TokenResponse;
-import com.eexchange.backend.DTO.UpdateProfileRequest;
+import com.eexchange.backend.DTO.Response.ApiResponse;
+import com.eexchange.backend.DTO.Request.ChangePasswordRequest;
+import com.eexchange.backend.DTO.Request.DeleteAccountRequest;
+import com.eexchange.backend.DTO.Response.TokenResponse;
+import com.eexchange.backend.DTO.Request.UpdateProfileRequest;
 import com.eexchange.backend.DTO.UserPrincipal;
-import com.eexchange.backend.DTO.UserProfileResponse;
+import com.eexchange.backend.DTO.Response.UserProfileResponse;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Service.UserProfileService;
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentUser;

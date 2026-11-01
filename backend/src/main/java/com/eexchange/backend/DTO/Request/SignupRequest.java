@@ -1,4 +1,4 @@
-package com.eexchange.backend.DTO;
+package com.eexchange.backend.DTO.Request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

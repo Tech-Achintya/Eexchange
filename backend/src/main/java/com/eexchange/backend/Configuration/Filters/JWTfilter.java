@@ -170,7 +170,8 @@ public class JWTfilter extends OncePerRequestFilter {
             }
         }
         // Phase 2: reject user tokens issued before the last password change.
-        // The cutoff is epoch millis; the token's iat is also epoch millis.
+        // The cutoff is stored as epoch millis but floored to whole seconds,
+        // because JWT "iat" is serialized in whole seconds too.
         // iat >= cutoff is valid. Admin tokens never reach this method.
         String cutoffValue = redisTemplate.opsForValue()
                 .get(KEY_TOKENS_VALID_AFTER + userId);

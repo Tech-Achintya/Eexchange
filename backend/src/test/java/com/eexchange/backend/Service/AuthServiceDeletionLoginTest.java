@@ -1,6 +1,6 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.DTO.LoginRequest;
+import com.eexchange.backend.DTO.Request.LoginRequest;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.CollegeRepository;
 import com.eexchange.backend.Repository.UserRepository;

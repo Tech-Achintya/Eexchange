@@ -26,7 +26,9 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         boolean isAccountNonLocked = true;
         boolean isEnabled = true;
-
+        if (user.getDeletedAt() != null) {
+            throw new UsernameNotFoundException("User account is deleted");
+        }
         if (user.getStatus() == UserStatus.PERM_BLOCKED) {
             isAccountNonLocked = false;
             isEnabled = false;

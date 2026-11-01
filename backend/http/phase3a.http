@@ -1,0 +1,161 @@
+### Phase 3A — storage + create post
+### Set @token from phase1/http-client.env.json after login.
+
+@host = http://localhost:8080
+@token = paste-user-access-token-here
+
+### 1. Create a SELL post with 2 images  -> 201
+###    Use the "Select Files" action IntelliJ shows on each < ./path line.
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook",
+  "description": "Lightly used, no highlights in the first ten chapters.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 450.00,
+  "condition": "GOOD"
+}
+--WebAppBoundary
+Content-Disposition: form-data; name="images"; filename="cover.jpg"
+Content-Type: image/jpeg
+
+< ./test-images/cover.jpg
+--WebAppBoundary
+Content-Disposition: form-data; name="images"; filename="back.jpg"
+Content-Type: image/jpeg
+
+< ./test-images/back.jpg
+--WebAppBoundary--
+
+### 2. Create an EXCHANGE post, no images  -> 201
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Scientific calculator swap",
+  "description": "Want to trade my FX-991 for a graphing calculator.",
+  "categoryId": 2,
+  "listingType": "EXCHANGE",
+  "exchangeWanted": "Graphing calculator",
+  "condition": "LIKE_NEW"
+}
+--WebAppBoundary--
+
+### 3. FREE post with a price  -> 400 (db price-consistency rule)
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Free study guides",
+  "description": "Giving away my first-year study guides.",
+  "categoryId": 1,
+  "listingType": "FREE",
+  "price": 10,
+  "condition": "FAIR"
+}
+--WebAppBoundary--
+
+### 4. SELL with no price  -> 400
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Desk lamp for sale",
+  "description": "Working desk lamp, minor scratch on the base.",
+  "categoryId": 3,
+  "listingType": "SELL",
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 5. Renamed .exe uploaded as .jpg  -> 400 (magic bytes, not filename)
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Suspicious upload",
+  "description": "This file is not really a JPEG image.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 1,
+  "condition": "GOOD"
+}
+--WebAppBoundary
+Content-Disposition: form-data; name="images"; filename="not-an-image.jpg"
+Content-Type: image/jpeg
+
+< ./test-images/not-an-image.exe
+--WebAppBoundary--
+
+### 6. Six images  -> 400 (max 5)
+###    Repeat the images part six times with different files.
+
+### 7. Inactive or unknown category  -> 400
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Unknown category post",
+  "description": "The category id below does not exist.",
+  "categoryId": 999999,
+  "listingType": "SELL",
+  "price": 5,
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 8. No token  -> 401
+POST {{host}}/api/posts
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Unauthenticated post",
+  "description": "Should never reach the service layer.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 5,
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 9. Rate limit: run request #1 four times quickly  -> 4th returns 429
+###    (3/min per user, separate from the 10/day window)
+
+### 10. Oversized image (> 5 MB)  -> 413
+###     Any valid JPEG larger than 5 MB triggers MaxUploadSizeExceededException.

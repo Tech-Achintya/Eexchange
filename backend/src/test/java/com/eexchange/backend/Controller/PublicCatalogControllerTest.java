@@ -1,7 +1,7 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.CategoryResponse;
-import com.eexchange.backend.DTO.CollegeResponse;
+import com.eexchange.backend.DTO.Response.CategoryResponse;
+import com.eexchange.backend.DTO.Response.CollegeResponse;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;
 import com.eexchange.backend.Service.CategoryService;
 import com.eexchange.backend.Service.CollegeCatalogService;

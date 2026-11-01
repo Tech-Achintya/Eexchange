@@ -1,6 +1,8 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.DTO.*;
+import com.eexchange.backend.DTO.Request.*;
+import com.eexchange.backend.DTO.Response.AuthResponse;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
@@ -214,7 +216,9 @@ public class AuthService {
             recordFailedLogin(email, failKey, failCount);
             throw new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
-
+        if (user.getDeletedAt() != null) {
+            throw new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
+        }
         if (user.getStatus() == UserStatus.PERM_BLOCKED) {
             throw new AppException("This account has been permanently suspended.", HttpStatus.FORBIDDEN);
         }

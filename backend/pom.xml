@@ -29,8 +29,20 @@
 		     artifact. "Latest" is not reproducible.
 		-->
 		<jjwt.version>0.11.5</jjwt.version>
+		<jjwt.version>0.11.5</jjwt.version>
+		<aws.sdk.version>2.31.10</aws.sdk.version>
 	</properties>
-
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${aws.sdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 
 		<!-- ================================================== -->
@@ -199,6 +211,15 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- AWS SDK v2 — S3 image storage -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>url-connection-client</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>

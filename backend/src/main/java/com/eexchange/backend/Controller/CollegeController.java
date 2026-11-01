@@ -1,7 +1,8 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.ApiResponse;
-import com.eexchange.backend.DTO.CollegeResponse;
+import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
+import com.eexchange.backend.DTO.Response.ApiResponse;
+import com.eexchange.backend.DTO.Response.CollegeResponse;
 import com.eexchange.backend.Service.CollegeCatalogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,8 @@ public class CollegeController {
     private final CollegeCatalogService collegeCatalogService;
 
     @GetMapping
+    @RateLimit(name = "colleges-list", limit = 60, windowSeconds = 60,
+            scope = RateLimit.Scope.IP)
     public ResponseEntity<ApiResponse<List<CollegeResponse>>> getColleges() {
         return ResponseEntity.ok(ApiResponse.ok(
                 "Colleges retrieved",

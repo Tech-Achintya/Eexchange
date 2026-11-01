@@ -1,7 +1,7 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.AdminLoginRequest;
-import com.eexchange.backend.DTO.ApiResponse;
+import com.eexchange.backend.DTO.Request.AdminLoginRequest;
+import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.AdminRepository;

@@ -1,8 +1,8 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.UpdateProfileRequest;
+import com.eexchange.backend.DTO.Request.UpdateProfileRequest;
 import com.eexchange.backend.DTO.UserPrincipal;
-import com.eexchange.backend.DTO.UserProfileResponse;
+import com.eexchange.backend.DTO.Response.UserProfileResponse;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;

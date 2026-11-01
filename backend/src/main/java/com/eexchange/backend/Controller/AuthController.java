@@ -1,6 +1,8 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.*;
+import com.eexchange.backend.DTO.Request.*;
+import com.eexchange.backend.DTO.Response.ApiResponse;
+import com.eexchange.backend.DTO.Response.AuthResponse;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Service.AuthService;
 import com.eexchange.backend.Service.CollegeDomainService;

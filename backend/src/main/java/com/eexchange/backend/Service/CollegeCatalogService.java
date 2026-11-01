@@ -1,6 +1,6 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.DTO.CollegeResponse;
+import com.eexchange.backend.DTO.Response.CollegeResponse;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Repository.CollegeRepository;
 import lombok.RequiredArgsConstructor;

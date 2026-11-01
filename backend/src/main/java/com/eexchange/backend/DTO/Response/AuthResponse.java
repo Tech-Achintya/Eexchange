@@ -1,4 +1,4 @@
-package com.eexchange.backend.DTO;
+package com.eexchange.backend.DTO.Response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

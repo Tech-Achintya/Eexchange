@@ -1,6 +1,6 @@
 package com.eexchange.backend.Controller;
 
-import com.eexchange.backend.DTO.ApiResponse;
+import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
