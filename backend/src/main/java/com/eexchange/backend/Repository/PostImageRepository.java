@@ -28,4 +28,9 @@ public interface PostImageRepository extends JpaRepository<PostImage, Long> {
     List<PostImage> findFirstImagesByPostIds(@Param("postIds") Collection<Long> postIds);
 
     void deleteByPostId(Long postId);
+
+
+    // Account deletion: image keys owned by this user, read BEFORE the posts go.
+    @Query("select pi.url from PostImage pi where pi.post.user.id = :userId")
+    List<String> findUrlsByUserId(@Param("userId") Long userId);
 }

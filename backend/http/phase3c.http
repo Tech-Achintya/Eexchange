@@ -1,0 +1,188 @@
+### Phase 3C — edit, sold, delete
+@host = http://localhost:8080
+@token = paste-user-access-token-here
+@postId = 1
+@imageId = 1
+
+### 1. Edit own APPROVED post, keep images, change fields  -> 200, status PENDING_REVIEW
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook (updated)",
+  "description": "Added photos of the inside pages.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 400.00,
+  "condition": "LIKE_NEW",
+  "removeImageIds": []
+}
+--WebAppBoundary--
+
+### 2. Edit and remove one existing image  -> 200
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook (updated)",
+  "description": "Removed the blurry photo.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 400.00,
+  "condition": "LIKE_NEW",
+  "removeImageIds": [{{imageId}}]
+}
+--WebAppBoundary--
+
+### 3. Edit adding one new image  -> 200
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook (updated)",
+  "description": "Added a clear photo of the cover.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 400.00,
+  "condition": "LIKE_NEW"
+}
+--WebAppBoundary
+Content-Disposition: form-data; name="newImages"; filename="cover.jpg"
+Content-Type: image/jpeg
+
+< ./test-images/cover.jpg
+--WebAppBoundary--
+
+### 4. Removing every image  -> 400
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook (updated)",
+  "description": "This would leave the post with no images.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 400.00,
+  "condition": "LIKE_NEW",
+  "removeImageIds": [1, 2, 3, 4, 5]
+}
+--WebAppBoundary--
+
+### 5. Foreign image id  -> 400
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook (updated)",
+  "description": "Image id from another post.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 400.00,
+  "condition": "LIKE_NEW",
+  "removeImageIds": [999999]
+}
+--WebAppBoundary--
+
+### 6. Edit someone else's post  -> 404
+PATCH {{host}}/api/posts/999999
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Not mine at all",
+  "description": "Should never be applied.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "price": 10.00,
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 7. Edit a SELL post with no price  -> 400 (shared validator)
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Used calculus textbook",
+  "description": "Missing the mandatory price.",
+  "categoryId": 1,
+  "listingType": "SELL",
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 8. Mark approved post as sold  -> 200, status SOLD
+POST {{host}}/api/posts/{{postId}}/sold
+Authorization: Bearer {{token}}
+
+### 9. Mark it sold again  -> 400
+POST {{host}}/api/posts/{{postId}}/sold
+Authorization: Bearer {{token}}
+
+### 10. Edit a sold post  -> 400
+###     Re-run request #1 against the same id.
+
+### 11. Mark sold without a token  -> 401
+POST {{host}}/api/posts/{{postId}}/sold
+
+### 12. Delete own post  -> 204
+DELETE {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+### 13. Detail after delete, as owner  -> 404
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+### 14. Delete again  -> 404
+DELETE {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+### 15. Delete someone else's post  -> 404
+DELETE {{host}}/api/posts/999999
+Authorization: Bearer {{token}}
+
+### 16. Rate limit: 21 DELETE requests in a minute  -> last one 429
+###     (20/min per user; use a non-existent id so only the limiter matters)
+
+### 17. Account deletion with images  -> 200/204
+###     First create a post with 2 images, then:
+# DELETE {{host}}/api/users/me
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# {"password":"your-password"}
+###     Then check S3: posts/<userId>/ must be empty.

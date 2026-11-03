@@ -7,10 +7,7 @@ import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
-import com.eexchange.backend.Repository.InterestMessageRepository;
-import com.eexchange.backend.Repository.PostRepository;
-import com.eexchange.backend.Repository.SavedPostRepository;
-import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Repository.*;
 import com.eexchange.backend.Utils.JWTutil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,22 +17,22 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class UserProfileServiceTest {
 
@@ -48,6 +45,9 @@ class UserProfileServiceTest {
     private StringRedisTemplate redisTemplate;
     private ValueOperations<String, String> valueOperations;
     private UserProfileService service;
+    private PostImageRepository postImageRepository;
+    private StorageService storageService;
+
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -60,6 +60,8 @@ class UserProfileServiceTest {
         jwtUtil = mock(JWTutil.class);
         redisTemplate = mock(StringRedisTemplate.class);
         valueOperations = mock(ValueOperations.class);
+        postImageRepository = mock(PostImageRepository.class);
+        storageService = mock(StorageService.class);
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(jwtUtil.getExpiryMs()).thenReturn(3_600_000L);
@@ -71,7 +73,9 @@ class UserProfileServiceTest {
                 interestMessageRepository,
                 passwordEncoder,
                 jwtUtil,
-                redisTemplate);
+                redisTemplate,
+                postImageRepository,
+                storageService);
     }
 
     @Test
@@ -203,5 +207,62 @@ class UserProfileServiceTest {
         DeleteAccountRequest request = new DeleteAccountRequest();
         request.setPassword(password);
         return request;
+    }
+    @Test
+    void deleteAccountDeletesAllUserImagesAfterCommit() {
+        User user = existingUser();
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(postImageRepository.findUrlsByUserId(7L))
+                .thenReturn(List.of("posts/7/a.jpg", "posts/7/b.png"));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.deleteAccount(7L, deleteAccount("oldpass123"));
+
+            // Keys were read before the posts were deleted.
+            verify(postImageRepository).findUrlsByUserId(7L);
+            verify(postRepository).deleteByUserId(7L);
+
+            // Nothing removed yet.
+            verify(storageService, never()).delete(anyString());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(storageService).delete("posts/7/a.jpg");
+            verify(storageService).delete("posts/7/b.png");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void deleteAccountStorageFailureDoesNotUndoDeletion() {
+        User user = existingUser();
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(postImageRepository.findUrlsByUserId(7L))
+                .thenReturn(List.of("posts/7/a.jpg"));
+
+        doThrow(new AppException("S3 down", HttpStatus.BAD_GATEWAY))
+                .when(storageService).delete("posts/7/a.jpg");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertDoesNotThrow(() ->
+                    service.deleteAccount(7L, deleteAccount("oldpass123")));
+
+            assertDoesNotThrow(() -> TransactionSynchronizationManager
+                    .getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(user.getDeletedAt()).isNotNull();
+        assertThat(user.getEmail()).isEqualTo("deleted_7@deleted.invalid");
     }
 }

@@ -8,23 +8,24 @@ import com.eexchange.backend.DTO.Response.UserProfileResponse;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
-import com.eexchange.backend.Repository.InterestMessageRepository;
-import com.eexchange.backend.Repository.PostRepository;
-import com.eexchange.backend.Repository.SavedPostRepository;
-import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Repository.*;
 import com.eexchange.backend.Utils.JWTutil;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+
 
 @Service
 @RequiredArgsConstructor
@@ -51,6 +52,9 @@ public class UserProfileService {
     private final PasswordEncoder passwordEncoder;
     private final JWTutil jwtUtil;
     private final StringRedisTemplate redisTemplate;
+    private final PostImageRepository postImageRepository;
+    private final StorageService storageService;
+    private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
 
     @Transactional(readOnly = true)
     public UserProfileResponse getProfile(Long userId) {
@@ -131,13 +135,9 @@ public class UserProfileService {
         // 2. Delete this user's saved posts.
         savedPostRepository.deleteAllByUserId(userId);
 
-        // 3. Delete this user's posts. The DB cascades post_images, reports,
-        //    saved_posts and interest_messages whose post_id points at them.
-        //
-        // TODO(Phase 3): before deleting the posts, collect their image URLs
-        // (post_images.url) and delete the files from object storage.
-        // postImageRepository.findUrlsByUserId(userId)
-        //         .forEach(storageService::delete);
+        // 3. Collect image keys BEFORE the posts (and their post_images) are
+        //    deleted, so we can remove the actual objects afterwards.
+        List<String> imageKeys = postImageRepository.findUrlsByUserId(userId);
         postRepository.deleteByUserId(userId);
 
         // 4. Anonymize instead of deleting the row, so reports/audit history
@@ -152,6 +152,9 @@ public class UserProfileService {
 
         // 5. Remove all user-scoped Redis state.
         clearRedisKeysForUser(userId, formerEmail);
+        // 6. Delete the objects only if the account deletion commits.
+        //    A storage failure is logged and must never roll back the account.
+        deleteStorageAfterCommit(imageKeys);
     }
 
     private void validatePasswordBytes(String password) {
@@ -201,6 +204,34 @@ public class UserProfileService {
                 KEY_RESET_COOLDOWN + formerEmail,
                 KEY_RESET_HOURLY + formerEmail)) {
             redisTemplate.delete(key);
+        }
+    }
+    private void deleteStorageAfterCommit(List<String> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return;
+        }
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            deleteStorageQuietly(keys);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        deleteStorageQuietly(keys);
+                    }
+                });
+    }
+
+    private void deleteStorageQuietly(List<String> keys) {
+        for (String key : keys) {
+            try {
+                storageService.delete(key);
+            } catch (RuntimeException ex) {
+                log.warn("Account deleted but storage object {} was not removed", key, ex);
+            }
         }
     }
 }

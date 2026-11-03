@@ -2,12 +2,16 @@ package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentUser;
 import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
-import com.eexchange.backend.DTO.Response.*;
 import com.eexchange.backend.DTO.Request.PostCreateRequest;
+import com.eexchange.backend.DTO.Request.PostUpdateRequest;
+import com.eexchange.backend.DTO.Response.ApiResponse;
+import com.eexchange.backend.DTO.Response.PageResponse;
+import com.eexchange.backend.DTO.Response.PostCardResponse;
+import com.eexchange.backend.DTO.Response.PostDetailResponse;
+import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
-import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Service.PostQueryService;
 import com.eexchange.backend.Service.PostService;
@@ -16,8 +20,15 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.object.UpdatableSqlQuery;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
@@ -25,14 +36,14 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/posts")
-//@RequiredArgsConstructor
+@RequiredArgsConstructor
 public class PostController {
+
     private final PostQueryService postQueryService;
     private final PostService postService;
-    PostController(PostQueryService postQueryService, PostService postService){
-        this.postQueryService = postQueryService;
-        this.postService = postService;
-    }
+
+    // ------------------------------------------------------------- create
+
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @RateLimit(name = "posts-create-minute", limit = 3, windowSeconds = 60,
             scope = RateLimit.Scope.USER)
@@ -41,7 +52,7 @@ public class PostController {
     public ResponseEntity<ApiResponse<PostResponse>> createPost(
             @CurrentUser UserPrincipal principal,
             @Valid @RequestPart("post") PostCreateRequest request,
-            @RequestPart(value = "images", required = false) List<MultipartFile> images) {
+            @RequestPart("images") List<MultipartFile> images) {
 
         PostResponse response = postService.createPost(
                 requireUserId(principal), request, images);
@@ -50,12 +61,52 @@ public class PostController {
                 .body(ApiResponse.ok("Post created and submitted for review", response));
     }
 
-    private Long requireUserId(UserPrincipal principal) {
-        if (principal == null) {
-            throw new AppException("Authentication required", HttpStatus.UNAUTHORIZED);
-        }
-        return principal.userId();
+    // ------------------------------------------------------------- update
+
+    @PatchMapping(value = "/{id:\\d+}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @RateLimit(name = "posts-update", limit = 20, windowSeconds = 60,
+            scope = RateLimit.Scope.USER)
+    public ResponseEntity<ApiResponse<PostResponse>> updatePost(
+            @CurrentUser UserPrincipal principal,
+            @PathVariable Long id,
+            @Valid @RequestPart("post") PostUpdateRequest request,
+            @RequestPart(value = "newImages", required = false) List<MultipartFile> newImages) {
+
+        PostResponse response = postService.updatePost(
+                requireUserId(principal), id, request, newImages);
+
+        return ResponseEntity.ok(
+                ApiResponse.ok("Post updated and submitted for review", response));
     }
+
+    // --------------------------------------------------------------- sold
+
+    @PostMapping("/{id:\\d+}/sold")
+    @RateLimit(name = "posts-sold", limit = 20, windowSeconds = 60,
+            scope = RateLimit.Scope.USER)
+    public ResponseEntity<ApiResponse<PostResponse>> markSold(
+            @CurrentUser UserPrincipal principal,
+            @PathVariable Long id) {
+
+        return ResponseEntity.ok(ApiResponse.ok("Post marked as sold",
+                postService.markSold(requireUserId(principal), id)));
+    }
+
+    // ------------------------------------------------------------- delete
+
+    @DeleteMapping("/{id:\\d+}")
+    @RateLimit(name = "posts-delete", limit = 20, windowSeconds = 60,
+            scope = RateLimit.Scope.USER)
+    public ResponseEntity<Void> deletePost(
+            @CurrentUser UserPrincipal principal,
+            @PathVariable Long id) {
+
+        postService.deletePost(requireUserId(principal), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // --------------------------------------------------------------- read
+
     @GetMapping
     @RateLimit(name = "posts-feed", limit = 60, windowSeconds = 60,
             scope = RateLimit.Scope.USER)
@@ -100,5 +151,12 @@ public class PostController {
 
         return ResponseEntity.ok(ApiResponse.ok("Your posts",
                 postQueryService.mine(requireUserId(principal), status, page, size)));
+    }
+
+    private Long requireUserId(UserPrincipal principal) {
+        if (principal == null) {
+            throw new AppException("Authentication required", HttpStatus.UNAUTHORIZED);
+        }
+        return principal.userId();
     }
 }

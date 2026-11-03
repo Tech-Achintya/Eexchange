@@ -72,6 +72,10 @@ public class PostQueryService {
                 maxPrice,
                 pageable);
 
+        if (posts.getContent().isEmpty()) {
+            return pageResponse(posts, List.of());
+        }
+
         Map<Long, String> firstImageKeys = postImageRepository
                 .findFirstImagesByPostIds(ids(posts.getContent()))
                 .stream()
@@ -136,6 +140,11 @@ public class PostQueryService {
 
         Page<Post> posts = postRepository.findMine(
                 userId, PostStatus.DELETED, status, pageable);
+
+        // An empty page must not run "where id in ()" against Postgres.
+        if (posts.getContent().isEmpty()) {
+            return pageResponse(posts, List.of());
+        }
 
         // One extra query for all images on this page (no N+1).
         Map<Long, List<PostImage>> imagesByPost = postImageRepository

@@ -132,12 +132,13 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.error("Invalid multipart request"));
     }
+    // Unknown API route (requires the two properties below).
     @ExceptionHandler(NoHandlerFoundException.class)
-    public ResponseEntity<?> handleNoHandlerFound(
+    public ResponseEntity<ApiResponse<Void>> handleNoHandlerFound(
             NoHandlerFoundException ex) {
 
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body("Endpoint not found");
+                .body(ApiResponse.error("Endpoint not found"));
     }
 }

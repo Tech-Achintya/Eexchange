@@ -1,8 +1,11 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.DTO.Request.PostCreateRequest;
+import com.eexchange.backend.DTO.Request.PostUpdateRequest;
 import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
+import com.eexchange.backend.Entity.Enums.ItemCondition;
+import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
@@ -23,12 +26,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
+
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -50,16 +56,217 @@ public class PostService {
     @Value("${app.post.max-images:5}")
     private int maxImages;
 
+    // ------------------------------------------------------------- create
+
     @Transactional
     public PostResponse createPost(Long userId,
                                    PostCreateRequest request,
                                    List<MultipartFile> files) {
 
-        // College comes from the DB-loaded user, not from the JWT claim.
-        User user = userRepository.findById(userId)
-                .filter(candidate -> candidate.getDeletedAt() == null)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.UNAUTHORIZED));
+        User user = requireUser(userId);
+        ValidPost fields = validatePostFields(request);
+        List<PreparedImage> prepared = prepareImages(files);
 
+        if (prepared.isEmpty()) {
+            throw new AppException("At least one image is required",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (prepared.size() > maxImages) {
+            throw new AppException("A post can have at most " + maxImages + " images",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        List<String> uploadedKeys = new ArrayList<>();
+        AtomicBoolean cleanedUp = new AtomicBoolean(false);
+
+        try {
+            for (PreparedImage image : prepared) {
+                uploadedKeys.add(storageService.store(
+                        user.getId(), image.bytes(), image.type()));
+            }
+
+            Post post = Post.builder()
+                    .user(user)
+                    .college(user.getCollege())
+                    .category(fields.category())
+                    .title(fields.title())
+                    .description(fields.description())
+                    .listingType(fields.listingType())
+                    .price(fields.price())
+                    .exchangeWanted(fields.exchangeWanted())
+                    .condition(fields.condition())
+                    .status(PostStatus.PENDING_REVIEW)
+                    .expiresAt(Instant.now().plus(expiryDays, ChronoUnit.DAYS))
+                    .build();
+
+            for (int index = 0; index < uploadedKeys.size(); index++) {
+                post.getImages().add(PostImage.builder()
+                        .post(post)
+                        .url(uploadedKeys.get(index))
+                        .position((short) index)
+                        .build());
+            }
+
+            Post saved = postRepository.saveAndFlush(post);
+
+            registerRollbackCleanup(uploadedKeys, cleanedUp);
+            eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
+
+            return toResponse(saved);
+        } catch (RuntimeException ex) {
+            if (cleanedUp.compareAndSet(false, true)) {
+                deleteQuietly(uploadedKeys);
+            }
+            throw ex;
+        }
+    }
+
+    // ------------------------------------------------------------- update
+
+    @Transactional
+    public PostResponse updatePost(Long userId,
+                                   Long postId,
+                                   PostUpdateRequest request,
+                                   List<MultipartFile> newFiles) {
+
+        User user = requireUser(userId);
+        Post post = requireOwnedPost(userId, postId);
+
+        if (post.getStatus() == PostStatus.SOLD || post.getStatus() == PostStatus.DELETED) {
+            throw new AppException("This post can no longer be edited",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        // Same validator as create: title, description, category, price rules.
+        ValidPost fields = validatePostFields(request);
+
+        List<PreparedImage> prepared = prepareImages(newFiles);
+
+        Set<Long> removeIds = request.getRemoveImageIds() == null
+                ? Set.of()
+                : new LinkedHashSet<>(request.getRemoveImageIds());
+
+        List<PostImage> current = post.getImages();
+        Set<Long> currentIds = current.stream()
+                .map(PostImage::getId)
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Every id must belong to this post.
+        if (!currentIds.containsAll(removeIds)) {
+            throw new AppException("One or more images do not belong to this post",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        long remaining = current.size() - removeIds.size() + prepared.size();
+        if (remaining < 1) {
+            throw new AppException("A post must keep at least one image",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (remaining > maxImages) {
+            throw new AppException("A post can have at most " + maxImages + " images",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        List<String> removedKeys = current.stream()
+                .filter(image -> removeIds.contains(image.getId()))
+                .map(PostImage::getUrl)
+                .toList();
+
+        List<String> uploadedKeys = new ArrayList<>();
+        AtomicBoolean cleanedUp = new AtomicBoolean(false);
+
+        try {
+            for (PreparedImage image : prepared) {
+                uploadedKeys.add(storageService.store(
+                        user.getId(), image.bytes(), image.type()));
+            }
+
+            // Orphan removal deletes these post_images rows at flush.
+            current.removeIf(image -> removeIds.contains(image.getId()));
+
+            int position = 0;
+            for (PostImage image : current) {
+                image.setPosition((short) position++);
+            }
+            for (String key : uploadedKeys) {
+                current.add(PostImage.builder()
+                        .post(post)
+                        .url(key)
+                        .position((short) position++)
+                        .build());
+            }
+
+            post.setCategory(fields.category());
+            post.setTitle(fields.title());
+            post.setDescription(fields.description());
+            post.setListingType(fields.listingType());
+            post.setPrice(fields.price());
+            post.setExchangeWanted(fields.exchangeWanted());
+            post.setCondition(fields.condition());
+
+            // Any edit needs a fresh AI review.
+            post.setStatus(PostStatus.PENDING_REVIEW);
+            post.setRejectionReason(null);
+
+            Post saved = postRepository.saveAndFlush(post);
+
+            // Removed objects disappear only if the transaction commits.
+            deleteAfterCommit(removedKeys, "removed post image");
+            // New objects disappear if it rolls back.
+            registerRollbackCleanup(uploadedKeys, cleanedUp);
+
+            eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
+
+            return toResponse(saved);
+        } catch (RuntimeException ex) {
+            if (cleanedUp.compareAndSet(false, true)) {
+                deleteQuietly(uploadedKeys);
+            }
+            throw ex;
+        }
+    }
+
+    // --------------------------------------------------------------- sold
+
+    @Transactional
+    public PostResponse markSold(Long userId, Long postId) {
+        requireUser(userId);
+        Post post = requireOwnedPost(userId, postId);
+
+        if (post.getStatus() != PostStatus.APPROVED) {
+            throw new AppException("Only approved posts can be marked as sold",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        post.setStatus(PostStatus.SOLD);
+        return toResponse(postRepository.saveAndFlush(post));
+    }
+
+    // ------------------------------------------------------------- delete
+
+    @Transactional
+    public void deletePost(Long userId, Long postId) {
+        requireUser(userId);
+        Post post = requireOwnedPost(userId, postId);
+
+        if (post.getStatus() == PostStatus.DELETED) {
+            throw notFound();
+        }
+
+        List<String> keys = post.getImages().stream()
+                .map(PostImage::getUrl)
+                .toList();
+
+        post.setStatus(PostStatus.DELETED);
+        postRepository.save(post);
+
+        deleteAfterCommit(keys, "deleted post image");
+    }
+
+    // ------------------------------------------------------------ shared
+
+    // ONE validator for create and update, so the DB price rule cannot drift.
+    private ValidPost validatePostFields(PostCreateRequest request) {
         if (request.getCategoryId() == null) {
             throw new AppException("Category is required", HttpStatus.BAD_REQUEST);
         }
@@ -88,96 +295,6 @@ public class PostService {
                     HttpStatus.BAD_REQUEST);
         }
 
-        Pricing pricing = validatePricing(request);
-
-        List<MultipartFile> imageFiles = files == null
-                ? List.of()
-                : files.stream()
-                .filter(file -> file != null && !file.isEmpty())
-                .toList();
-
-        // at least one image is required.
-        if (imageFiles.isEmpty()) {
-            throw new AppException("At least one image is required",
-                    HttpStatus.BAD_REQUEST);
-        }
-        if (imageFiles.size() > maxImages) {
-            throw new AppException("A post can have at most " + maxImages + " images",
-                    HttpStatus.BAD_REQUEST);
-        }
-
-        List<ImagePayload> payloads = new ArrayList<>();
-
-        for (MultipartFile file : imageFiles) {
-            if (file.getSize() > MAX_IMAGE_BYTES) {
-                throw new AppException("Each image must be at most 5 MB",
-                        HttpStatus.PAYLOAD_TOO_LARGE);
-            }
-
-            byte[] bytes;
-            try {
-                bytes = file.getBytes();
-            } catch (IOException ex) {
-                throw new AppException("Could not read the uploaded image",
-                        HttpStatus.BAD_REQUEST);
-            }
-
-            ImageType imageType = ImageType.detect(bytes)
-                    .orElseThrow(() -> new AppException(
-                            "Only JPEG, PNG or WebP images are allowed",
-                            HttpStatus.BAD_REQUEST));
-
-            payloads.add(new ImagePayload(bytes, imageType));
-        }
-
-        List<String> uploadedKeys = new ArrayList<>();
-        AtomicBoolean cleanedUp = new AtomicBoolean(false);
-
-        try {
-            for (ImagePayload payload : payloads) {
-                uploadedKeys.add(storageService.store(
-                        user.getId(), payload.bytes(), payload.type()));
-            }
-
-            Post post = Post.builder()
-                    .user(user)
-                    .college(user.getCollege())
-                    .category(category)
-                    .title(title)
-                    .description(description)
-                    .listingType(request.getListingType())
-                    .price(pricing.price())
-                    .exchangeWanted(pricing.exchangeWanted())
-                    .condition(request.getCondition())
-                    .status(PostStatus.PENDING_REVIEW)
-                    .expiresAt(Instant.now().plus(expiryDays, ChronoUnit.DAYS))
-                    .build();
-
-            for (int index = 0; index < uploadedKeys.size(); index++) {
-                post.getImages().add(PostImage.builder()
-                        .post(post)
-                        .url(uploadedKeys.get(index))
-                        .position((short) index)
-                        .build());
-            }
-
-            Post saved = postRepository.saveAndFlush(post);
-
-            // Covers commit-time failures that happen after this method returns.
-            registerRollbackCleanup(uploadedKeys, cleanedUp);
-
-            eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
-
-            return toResponse(saved);
-        } catch (RuntimeException ex) {
-            if (cleanedUp.compareAndSet(false, true)) {
-                deleteQuietly(uploadedKeys);
-            }
-            throw ex;
-        }
-    }
-
-    private Pricing validatePricing(PostCreateRequest request) {
         BigDecimal price = request.getPrice();
         String exchangeWanted = trimToNull(request.getExchangeWanted());
 
@@ -214,12 +331,87 @@ public class PostService {
             }
         }
 
-        return new Pricing(price, exchangeWanted);
+        return new ValidPost(title, description, category, request.getListingType(),
+                price, exchangeWanted, request.getCondition());
+    }
+
+    // Reads, size-checks and magic-byte checks. Never trusts the filename.
+    private List<PreparedImage> prepareImages(List<MultipartFile> files) {
+        if (files == null) {
+            return List.of();
+        }
+
+        List<PreparedImage> prepared = new ArrayList<>();
+
+        for (MultipartFile file : files) {
+            if (file == null || file.isEmpty()) {
+                continue;
+            }
+            if (file.getSize() > MAX_IMAGE_BYTES) {
+                throw new AppException("Each image must be at most 5 MB",
+                        HttpStatus.PAYLOAD_TOO_LARGE);
+            }
+
+            byte[] bytes;
+            try {
+                bytes = file.getBytes();
+            } catch (IOException ex) {
+                throw new AppException("Could not read the uploaded image",
+                        HttpStatus.BAD_REQUEST);
+            }
+
+            ImageType imageType = ImageType.detect(bytes)
+                    .orElseThrow(() -> new AppException(
+                            "Only JPEG, PNG or WebP images are allowed",
+                            HttpStatus.BAD_REQUEST));
+
+            prepared.add(new PreparedImage(bytes, imageType));
+        }
+
+        return prepared;
+    }
+
+    private User requireUser(Long userId) {
+        return userRepository.findById(userId)
+                .filter(candidate -> candidate.getDeletedAt() == null)
+                .orElseThrow(() -> new AppException("User not found",
+                        HttpStatus.UNAUTHORIZED));
+    }
+
+    private Post requireOwnedPost(Long userId, Long postId) {
+        Post post = postRepository.findDetailById(postId)
+                .orElseThrow(this::notFound);
+
+        if (!post.getUser().getId().equals(userId)) {
+            // Never 403: do not confirm that someone else's post exists.
+            throw notFound();
+        }
+        return post;
+    }
+
+    private void deleteAfterCommit(List<String> keys, String what) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            deleteQuietly(keys);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        log.debug("Deleting {} storage objects ({})", keys.size(), what);
+                        deleteQuietly(keys);
+                    }
+                });
     }
 
     private void registerRollbackCleanup(List<String> uploadedKeys,
                                          AtomicBoolean cleanedUp) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+        if (uploadedKeys.isEmpty()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
             return;
         }
 
@@ -235,12 +427,13 @@ public class PostService {
                 });
     }
 
+    // Storage must never break an API call; failures are only logged.
     private void deleteQuietly(List<String> keys) {
         for (String key : keys) {
             try {
                 storageService.delete(key);
             } catch (RuntimeException ex) {
-                log.warn("Failed to delete orphaned storage object {}", key, ex);
+                log.warn("Failed to delete storage object {}; continuing", key, ex);
             }
         }
     }
@@ -272,6 +465,10 @@ public class PostService {
                 post.getExpiresAt());
     }
 
+    private AppException notFound() {
+        return new AppException("Post not found", HttpStatus.NOT_FOUND);
+    }
+
     private String trimToEmpty(String value) {
         return value == null ? "" : value.trim();
     }
@@ -284,9 +481,15 @@ public class PostService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private record Pricing(BigDecimal price, String exchangeWanted) {
+    private record ValidPost(String title,
+                             String description,
+                             Category category,
+                             ListingType listingType,
+                             BigDecimal price,
+                             String exchangeWanted,
+                             ItemCondition condition) {
     }
 
-    private record ImagePayload(byte[] bytes, ImageType type) {
+    private record PreparedImage(byte[] bytes, ImageType type) {
     }
 }

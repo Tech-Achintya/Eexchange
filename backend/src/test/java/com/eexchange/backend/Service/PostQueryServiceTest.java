@@ -321,4 +321,31 @@ class PostQueryServiceTest {
     private Page<Post> page(Post... posts) {
         return new PageImpl<>(List.of(posts));
     }
+
+    @Test
+    void feedWithEmptyPageDoesNotQueryImages() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
+                any(), any(), any(Pageable.class))).thenReturn(page());
+
+        PageResponse<PostCardResponse> result =
+                service.feed(7L, null, null, null, null, null, "newest", 0, 12);
+
+        assertThat(result.content()).isEmpty();
+        verify(postImageRepository, never()).findFirstImagesByPostIds(anyCollection());
+    }
+
+    @Test
+    void mineWithEmptyPageDoesNotQueryImages() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findMine(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(page());
+
+        PageResponse<PostDetailResponse> result = service.mine(7L, null, 0, 12);
+
+        assertThat(result.content()).isEmpty();
+        verify(postImageRepository, never())
+                .findByPostIdInOrderByPostIdAscPositionAsc(anyCollection());
+    }
+
 }
