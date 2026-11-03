@@ -219,4 +219,16 @@ class PostCreateServiceTest {
     private Category category() {
         return Category.builder().id(5L).name("Books").slug("books").isActive(true).build();
     }
+
+    @Test
+    void postWithoutImagesIsRejected() {
+        PostCreateRequest request = validRequest(ListingType.SELL);
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.createPost(1L, request, List.of()));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("At least one image");
+        verifyNoInteractions(storageService);
+    }
 }

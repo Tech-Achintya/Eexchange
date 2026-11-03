@@ -96,6 +96,11 @@ public class PostService {
                 .filter(file -> file != null && !file.isEmpty())
                 .toList();
 
+        // at least one image is required.
+        if (imageFiles.isEmpty()) {
+            throw new AppException("At least one image is required",
+                    HttpStatus.BAD_REQUEST);
+        }
         if (imageFiles.size() > maxImages) {
             throw new AppException("A post can have at most " + maxImages + " images",
                     HttpStatus.BAD_REQUEST);

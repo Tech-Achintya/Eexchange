@@ -1,0 +1,64 @@
+### Phase 3B — feed, detail, my items
+@host = http://localhost:8080
+@token = paste-user-access-token-here
+@postId = 1
+
+### 1. Feed, defaults  -> 200, data.size == 12, page == 0
+GET {{host}}/api/posts
+Authorization: Bearer {{token}}
+
+### 2. Feed with every filter  -> 200
+GET {{host}}/api/posts?category=1&type=SELL&q=textbook&minPrice=100&maxPrice=1000&sort=priceAsc&page=0&size=5
+Authorization: Bearer {{token}}
+
+### 3. Wildcards in q are literal  -> 200, no 500 (escape check)
+GET {{host}}/api/posts?q=50%25_off
+Authorization: Bearer {{token}}
+
+### 4. size above the cap  -> 200, data.size == 50
+GET {{host}}/api/posts?size=999
+Authorization: Bearer {{token}}
+
+### 5. Invalid sort  -> 400
+GET {{host}}/api/posts?sort=cheapest
+Authorization: Bearer {{token}}
+
+### 6. Invalid enum for type  -> 400
+GET {{host}}/api/posts?type=RENT
+Authorization: Bearer {{token}}
+
+### 7. Feed without a token  -> 401
+GET {{host}}/api/posts
+
+### 8. Detail of an approved same-college post  -> 200
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+### 9. Detail of another college's post  -> 404 (never 403)
+GET {{host}}/api/posts/999999
+Authorization: Bearer {{token}}
+
+### 10. Non-numeric id  -> 404
+GET {{host}}/api/posts/abc
+Authorization: Bearer {{token}}
+
+### 11. My items, all statuses (DELETED excluded)  -> 200
+GET {{host}}/api/posts/mine
+Authorization: Bearer {{token}}
+
+### 12. My rejected items include rejectionReason  -> 200
+GET {{host}}/api/posts/mine?status=REJECTED
+Authorization: Bearer {{token}}
+
+### 13. Mine with an invalid status enum  -> 400
+GET {{host}}/api/posts/mine?status=NOPE
+Authorization: Bearer {{token}}
+
+### 14. Expiry check: set a post's expires_at in the past, reload the feed
+###     -> that post disappears from /api/posts and its detail becomes 404
+###     for a same-college non-owner.
+###     psql: update posts set expires_at = now() - interval '1 day' where id = <id>;
+
+### 15. Non-owner sees pending  -> 404
+###     Create a second user in the same college, then request a PENDING_REVIEW
+###     post id created by the first user.

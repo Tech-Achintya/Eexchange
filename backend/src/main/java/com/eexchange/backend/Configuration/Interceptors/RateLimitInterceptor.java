@@ -7,6 +7,7 @@ import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.Configuration.RedisRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -31,7 +32,12 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        RateLimit[] rateLimits = handlerMethod.getMethod().getAnnotationsByType(RateLimit.class);
+        // @RateLimit is repeatable; AnnotatedElementUtils also sees the
+        // container annotation and merged/composed annotations.
+        RateLimit[] rateLimits = AnnotatedElementUtils
+                .findMergedRepeatableAnnotations(handlerMethod.getMethod(), RateLimit.class)
+                .toArray(RateLimit[]::new);
+
         if (rateLimits.length == 0) {
             return true;
         }
