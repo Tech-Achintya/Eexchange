@@ -206,6 +206,8 @@ public class PostService {
 
             // Any edit needs a fresh AI review.
             post.setStatus(PostStatus.PENDING_REVIEW);
+            // A new edit gets a fresh set of moderation attempts.
+            post.setModerationAttempts(0);
             post.setRejectionReason(null);
 
             Post saved = postRepository.saveAndFlush(post);

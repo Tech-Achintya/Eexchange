@@ -1,0 +1,191 @@
+### Phase 5 - reports, auto-hide, admin moderation, audit log
+@host = http://localhost:8080
+@user1 = paste-user1-token
+@user2 = paste-user2-token
+@user3 = paste-user3-token
+@moderator = paste-moderator-token
+@superAdmin = paste-super-admin-token
+@postId = 1
+@reportId = 1
+
+### ---------- admin login ----------
+POST {{host}}/api/admin/auth/login
+Content-Type: application/json
+
+{
+  "username": "your_admin_username",
+  "password": "your_admin_password"
+}
+
+### ---------- user reports ----------
+
+### 1. Report someone else's approved post in your college -> 201
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user1}}
+Content-Type: application/json
+
+{
+  "reason": "SCAM",
+  "comment": "This asks for payment outside the platform."
+}
+
+### 2. Report the same post again -> 409
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user1}}
+Content-Type: application/json
+
+{
+  "reason": "SPAM",
+  "comment": "Duplicate."
+}
+
+### 3. Report your own post -> 400
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user1}}
+Content-Type: application/json
+
+{
+  "reason": "OTHER",
+  "comment": "Self report."
+}
+###    (Use a post id owned by user1.)
+
+### 4. Report a post from another college or not APPROVED -> 404
+POST {{host}}/api/posts/999999/report
+Authorization: Bearer {{user1}}
+Content-Type: application/json
+
+{
+  "reason": "OTHER",
+  "comment": "Not visible."
+}
+
+### 5. Comment longer than 500 chars -> 400
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user2}}
+Content-Type: application/json
+
+{
+  "reason": "SPAM",
+  "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+
+### 6. Second and third distinct users report the same post -> 201, then 201
+###    After the third open report the post is HIDDEN with hiddenReason REPORTS.
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user2}}
+Content-Type: application/json
+
+{"reason": "INAPPROPRIATE", "comment": "Inappropriate photos."}
+
+POST {{host}}/api/posts/{{postId}}/report
+Authorization: Bearer {{user3}}
+Content-Type: application/json
+
+{"reason": "PROHIBITED_ITEM", "comment": "This is a restricted item."}
+
+### 7. It disappears from the feed and from other users' detail -> 200 but no post
+GET {{host}}/api/posts
+Authorization: Bearer {{user2}}
+
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{user2}}
+###    Expected: 404
+
+### 8. The owner still sees it as HIDDEN in /mine -> 200, status HIDDEN
+GET {{host}}/api/posts/mine
+Authorization: Bearer {{user1}}
+
+### ---------- admin reports ----------
+
+### 9. List open reports (oldest first) -> 200
+GET {{host}}/api/admin/reports?status=OPEN&page=0&size=20
+Authorization: Bearer {{moderator}}
+
+### 10. Dismiss one report while others remain -> 200, post stays HIDDEN
+PATCH {{host}}/api/admin/reports/{{reportId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"action": "DISMISS", "note": "Not a scam, just a rude reply."}
+
+### 11. Dismiss the remaining reports -> the post returns to APPROVED
+PATCH {{host}}/api/admin/reports/{{reportId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"action": "DISMISS", "note": "Last open report."}
+
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{user2}}
+###    Expected: 200 again
+
+### 12. Resolve without deleting -> only that report changes
+PATCH {{host}}/api/admin/reports/{{reportId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"action": "RESOLVE", "note": "Handled by warning the seller."}
+
+### 13. Resolve with deletePost -> post DELETED, all open reports resolved
+PATCH {{host}}/api/admin/reports/{{reportId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"action": "RESOLVE", "deletePost": true, "note": "Prohibited item confirmed."}
+
+### 14. Acting on an already resolved report -> 400
+PATCH {{host}}/api/admin/reports/{{reportId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"action": "DISMISS", "note": "Too late."}
+
+### ---------- admin posts ----------
+
+### 15. List all posts, all colleges, with filters -> 200
+GET {{host}}/api/admin/posts?status=HIDDEN&q=lamp&collegeId=1&page=0&size=20
+Authorization: Bearer {{moderator}}
+
+### 16. Full detail with images, aiReviewResult and reports -> 200
+GET {{host}}/api/admin/posts/{{postId}}
+Authorization: Bearer {{moderator}}
+
+### 17. Delete with no reason -> 400
+DELETE {{host}}/api/admin/posts/{{postId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"reason": ""}
+
+### 18. Delete with reason -> 200
+DELETE {{host}}/api/admin/posts/{{postId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"reason": "Prohibited item confirmed by photo."}
+
+### 19. Delete again -> 400
+DELETE {{host}}/api/admin/posts/{{postId}}
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"reason": "Again."}
+
+### ---------- audit log ----------
+
+### 20. Super admin -> 200, newest first
+GET {{host}}/api/admin/audit-log?page=0&size=20
+Authorization: Bearer {{superAdmin}}
+
+### 21. Filter by target -> 200
+GET {{host}}/api/admin/audit-log?targetType=POST&adminId=1
+Authorization: Bearer {{superAdmin}}
+
+### 22. Moderator -> 403
+GET {{host}}/api/admin/audit-log
+Authorization: Bearer {{moderator}}
+
+### 23. User token on admin route -> 401
+GET {{host}}/api/admin/reports
+Authorization: Bearer {{user1}}

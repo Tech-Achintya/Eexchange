@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.EntityGraph;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -102,5 +103,59 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                         @Param("deletedStatus") PostStatus deletedStatus,
                         @Param("status") PostStatus status,
                         Pageable pageable);
+
+
+    // Retry job: pending posts that still have attempts left, oldest first.
+    @EntityGraph(attributePaths = {"user", "category"})
+    @Query("""
+            select p from Post p
+            where p.status = :status
+              and p.moderationAttempts < :maxAttempts
+              and p.updatedAt <= :now
+            order by p.updatedAt asc
+            """)
+    List<Post> findPendingForModeration(@Param("status") PostStatus status,
+                                        @Param("maxAttempts") int maxAttempts,
+                                        @Param("now") Instant now,
+                                        Pageable pageable);
+
+    // Atomic auto-hide: only the first report that crosses the threshold wins.
+    // Concurrent reports cannot double-apply because the status predicate fails.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :hiddenStatus,
+                   p.hiddenReason = :hiddenReason
+             where p.id = :postId
+               and p.status = :approvedStatus
+            """)
+    int hideIfApproved(@Param("postId") Long postId,
+                       @Param("hiddenStatus") PostStatus hiddenStatus,
+                       @Param("hiddenReason") String hiddenReason,
+                       @Param("approvedStatus") PostStatus approvedStatus);
+
+    // Admin list: every college, every status.
+    @EntityGraph(attributePaths = {"user", "college", "category"})
+    @Query(value = """
+            select p from Post p
+            where (:status is null or p.status = :status)
+              and (:collegeId is null or p.college.id = :collegeId)
+              and (:q is null or lower(p.title) like :q escape '!')
+            """,
+            countQuery = """
+            select count(p) from Post p
+            where (:status is null or p.status = :status)
+              and (:collegeId is null or p.college.id = :collegeId)
+              and (:q is null or lower(p.title) like :q escape '!')
+            """)
+    Page<Post> findForAdmin(@Param("status") PostStatus status,
+                            @Param("collegeId") Long collegeId,
+                            @Param("q") String q,
+                            Pageable pageable);
+
+    @EntityGraph(attributePaths = {"user", "college", "category"})
+    @Query("select p from Post p where p.id = :id")
+    Optional<Post> findAdminDetailById(@Param("id") Long id);
+
 
 }
