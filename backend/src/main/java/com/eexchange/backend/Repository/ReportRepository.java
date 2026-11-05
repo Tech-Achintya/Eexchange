@@ -69,4 +69,14 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
                               @Param("note") String note);
 
     Optional<Report> findByIdAndStatus(Long id, ReportStatus status);
+
+
+    @Query("""
+            select count(r) from Report r
+            where r.post.user.id = :userId
+              and r.status = :status
+            """)
+    long countByPostOwnerIdAndStatus(@Param("userId") Long userId,
+                                     @Param("status") ReportStatus status);
+
 }

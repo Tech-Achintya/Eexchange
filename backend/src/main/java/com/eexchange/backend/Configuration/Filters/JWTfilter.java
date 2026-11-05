@@ -23,12 +23,12 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-
 import java.io.IOException;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import com.eexchange.backend.Service.UserStatusCache;
+
 
 @Component
 public class JWTfilter extends OncePerRequestFilter {
@@ -140,7 +140,7 @@ public class JWTfilter extends OncePerRequestFilter {
             return false;
         }
 
-        String statusKey = "user:status:" + userId;
+        String statusKey = UserStatusCache.key(userId);
         String status = redisTemplate.opsForValue().get(statusKey);
 
         if (status == null) {
@@ -151,7 +151,8 @@ public class JWTfilter extends OncePerRequestFilter {
                 return false;
             }
             status = user.getStatus().name();
-            redisTemplate.opsForValue().set(statusKey, status, Duration.ofHours(1));
+            redisTemplate.opsForValue().set(statusKey, status, UserStatusCache.TTL);
+
         }
 
         if (UserStatus.PERM_BLOCKED.name().equals(status)) {

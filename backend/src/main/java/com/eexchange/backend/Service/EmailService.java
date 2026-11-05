@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -159,5 +160,63 @@ public class EmailService {
             return "***" + (at >= 0 ? email.substring(at) : "");
         }
         return email.charAt(0) + "***" + email.substring(at);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendAccountBlockedEmail(String toEmail, String reason, Instant blockedUntil) {
+        if (isDevProfile()) {
+            log.info("[dev] Account block email for {} until {} (reason: {})",
+                    toEmail, blockedUntil, reason);
+        }
+
+        String duration = blockedUntil == null
+                ? "This is a permanent suspension."
+                : "Your account is suspended until <strong>" + blockedUntil + "</strong>.";
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #b91c1c;'>Eexchange account suspended</h2>"
+                + "<p>" + duration + "</p>"
+                + "<p><strong>Reason:</strong> " + reason + "</p>"
+                + "<p style='color: #6b7280;'>If you believe this was a mistake, contact support.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, "Your Eexchange account has been blocked", html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendAccountUnblockedEmail(String toEmail) {
+        if (isDevProfile()) {
+            log.info("[dev] Account unblocked email for {}", toEmail);
+        }
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #15803d;'>Your Eexchange account is active again</h2>"
+                + "<p>You can now log in and use the marketplace normally.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, "Your Eexchange account has been unblocked", html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendInterestEmail(String toEmail,
+                                  String escapedSenderName,
+                                  String escapedMessage,
+                                  String escapedContactInfo,
+                                  String escapedPostTitle) {
+        if (isDevProfile()) {
+            log.info("[dev] Interest notification for {} about post '{}'",
+                    toEmail, escapedPostTitle);
+        }
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #4F46E5;'>New interest in your post</h2>"
+                + "<p><strong>Post:</strong> " + escapedPostTitle + "</p>"
+                + "<p><strong>From:</strong> " + escapedSenderName + "</p>"
+                + "<p><strong>Message:</strong><br/>" + escapedMessage + "</p>"
+                + "<p><strong>Contact info:</strong><br/>" + escapedContactInfo + "</p>"
+                + "<p style='color: #6b7280;'>Reply using the contact info above.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, "New interest in your Eexchange post", html);
     }
 }

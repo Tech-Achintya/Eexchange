@@ -21,7 +21,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-
+import com.eexchange.backend.Entity.Enums.UserStatus;
+import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -186,5 +187,37 @@ class PostModerationProcessorTest {
                 .id(100L).post(post).url("posts/7/a.jpg").position((short) 0).build());
 
         return post;
+    }
+    @Test
+    void approvedVerdictForTemporarilyBlockedOwnerIsHiddenAsUserBlocked() {
+        Post post = pendingPost();
+        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
+        post.getUser().setBlockedUntil(Instant.now().plusSeconds(3600));
+
+        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.HIDDEN);
+        assertThat(post.getHiddenReason()).isEqualTo("USER_BLOCKED");
+        assertThat(post.getRejectionReason()).isNull();
+    }
+
+    @Test
+    void approvedVerdictForExpiredTempBlockStillApproves() {
+        Post post = pendingPost();
+        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
+        post.getUser().setBlockedUntil(Instant.now().minusSeconds(60));
+
+        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.APPROVED);
+        assertThat(post.getHiddenReason()).isNull();
     }
 }

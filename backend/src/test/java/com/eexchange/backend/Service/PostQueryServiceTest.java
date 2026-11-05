@@ -9,9 +9,9 @@ import com.eexchange.backend.Entity.Enums.ItemCondition;
 import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
-import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
+import com.eexchange.backend.Repository.InterestMessageRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.UserRepository;
@@ -41,6 +41,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+
 class PostQueryServiceTest {
 
     private UserRepository userRepository;
@@ -48,16 +49,21 @@ class PostQueryServiceTest {
     private PostImageRepository postImageRepository;
     private StorageService storageService;
     private PostQueryService service;
-
+    private InterestMessageRepository interestMessageRepository;
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
         postRepository = mock(PostRepository.class);
         postImageRepository = mock(PostImageRepository.class);
         storageService = mock(StorageService.class);
+        interestMessageRepository = mock(InterestMessageRepository.class);
 
         service = new PostQueryService(
-                userRepository, postRepository, postImageRepository, storageService);
+                userRepository,
+                postRepository,
+                postImageRepository,
+                storageService,
+                interestMessageRepository);
 
         when(storageService.publicUrl(any()))
                 .thenAnswer(i -> "https://cdn.test/" + i.getArgument(0));
@@ -347,5 +353,30 @@ class PostQueryServiceTest {
         verify(postImageRepository, never())
                 .findByPostIdInOrderByPostIdAscPositionAsc(anyCollection());
     }
+    @Test
+    void detailSetsInterestedForNonOwner() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findDetailById(1L))
+                .thenReturn(Optional.of(post(1L, 10L, PostStatus.APPROVED, future())));
+        when(interestMessageRepository.existsByPostIdAndSenderId(1L, 7L))
+                .thenReturn(true);
 
+        PostDetailResponse response = service.detail(7L, 1L);
+
+        assertThat(response.interested()).isTrue();
+        verify(interestMessageRepository).existsByPostIdAndSenderId(1L, 7L);
+    }
+
+    @Test
+    void detailOwnerIsNeverInterested() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findDetailById(1L))
+                .thenReturn(Optional.of(ownedPost(1L, 7L, 10L, PostStatus.APPROVED)));
+
+        PostDetailResponse response = service.detail(7L, 1L);
+
+        assertThat(response.interested()).isFalse();
+        verify(interestMessageRepository, never())
+                .existsByPostIdAndSenderId(any(), any());
+    }
 }

@@ -10,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 @Repository
 public interface AdminAuditLogRepository extends JpaRepository<AdminAuditLog, Long> {
 
@@ -27,4 +29,8 @@ public interface AdminAuditLogRepository extends JpaRepository<AdminAuditLog, Lo
     Page<AdminAuditLog> search(@Param("targetType") AuditTargetType targetType,
                                @Param("adminId") Long adminId,
                                Pageable pageable);
+    @EntityGraph(attributePaths = {"admin"})
+    List<AdminAuditLog> findTop10ByTargetTypeAndTargetIdOrderByCreatedAtDescIdDesc(
+            AuditTargetType targetType, Long targetId);
+
 }

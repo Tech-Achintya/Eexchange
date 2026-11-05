@@ -29,7 +29,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
+import com.eexchange.backend.Repository.InterestMessageRepository;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -42,7 +42,7 @@ public class PostQueryService {
     private final PostRepository postRepository;
     private final PostImageRepository postImageRepository;
     private final StorageService storageService;
-
+    private final InterestMessageRepository interestMessageRepository;
     // ---------------------------------------------------------------- feed
 
     public PageResponse<PostCardResponse> feed(Long userId,
@@ -118,10 +118,15 @@ public class PostQueryService {
             }
         }
 
-        List<PostImage> images = postImageRepository
-                .findByPostIdOrderByPositionAsc(post.getId());
+        // Only reachable for a visible post; owners never get the flag.
+        boolean interested = !owner
+                && interestMessageRepository.existsByPostIdAndSenderId(
+                post.getId(), user.getId());
 
-        return toDetail(post, images);
+        List<PostImage> images = postImageRepository
+                .findByPostIdInOrderByPostIdAscPositionAsc(List.of(post.getId()));
+
+        return toDetail(post, images, interested);
     }
 
     // ---------------------------------------------------------------- mine
@@ -153,8 +158,10 @@ public class PostQueryService {
                 .collect(Collectors.groupingBy(image -> image.getPost().getId()));
 
         List<PostDetailResponse> content = posts.getContent().stream()
-                .map(post -> toDetail(post,
-                        imagesByPost.getOrDefault(post.getId(), List.of())))
+                .map(post -> toDetail(
+                        post,
+                        imagesByPost.getOrDefault(post.getId(), List.of()),
+                        false))
                 .toList();
 
         return pageResponse(posts, content);
@@ -182,7 +189,9 @@ public class PostQueryService {
                 post.getCreatedAt());
     }
 
-    private PostDetailResponse toDetail(Post post, List<PostImage> images) {
+    private PostDetailResponse toDetail(Post post,
+                                        List<PostImage> images,
+                                        boolean interested) {
         return new PostDetailResponse(
                 post.getId(),
                 post.getTitle(),
@@ -202,7 +211,9 @@ public class PostQueryService {
                         .map(image -> storageService.publicUrl(image.getUrl()))
                         .toList(),
                 post.getCreatedAt(),
-                post.getExpiresAt());
+                post.getExpiresAt(),
+                interested
+        );
     }
 
     private boolean isExpired(Post post) {

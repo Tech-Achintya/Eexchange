@@ -156,6 +156,65 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     @EntityGraph(attributePaths = {"user", "college", "category"})
     @Query("select p from Post p where p.id = :id")
     Optional<Post> findAdminDetailById(@Param("id") Long id);
+    interface UserPostTotal {
+        Long getUserId();
 
+        long getTotal();
+    }
+
+    interface UserPostStatusCount {
+        PostStatus getStatus();
+
+        long getTotal();
+    }
+
+    @Query("""
+            select p.user.id as userId, count(p) as total
+            from Post p
+            where p.user.id in :userIds
+              and p.status <> :excludedStatus
+            group by p.user.id
+            """)
+    List<UserPostTotal> countByUserIdsExcludingStatus(
+            @Param("userIds") Collection<Long> userIds,
+            @Param("excludedStatus") PostStatus excludedStatus);
+
+    @Query("""
+            select p.status as status, count(p) as total
+            from Post p
+            where p.user.id = :userId
+            group by p.status
+            """)
+    List<UserPostStatusCount> countByUserIdGroupByStatus(
+            @Param("userId") Long userId);
+
+    // TEMP block: only APPROVED posts; REPORTS/ADMIN-hidden rows are untouched.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :hiddenStatus,
+                   p.hiddenReason = :hiddenReason
+             where p.user.id = :userId
+               and p.status = :approvedStatus
+            """)
+    int hideApprovedByUserId(@Param("userId") Long userId,
+                             @Param("hiddenStatus") PostStatus hiddenStatus,
+                             @Param("hiddenReason") String hiddenReason,
+                             @Param("approvedStatus") PostStatus approvedStatus);
+
+    // UNBLOCK: only posts hidden because of USER_BLOCKED.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :approvedStatus,
+                   p.hiddenReason = null
+             where p.user.id = :userId
+               and p.status = :hiddenStatus
+               and p.hiddenReason = :hiddenReason
+            """)
+    int restoreUserBlockedByUserId(@Param("userId") Long userId,
+                                   @Param("approvedStatus") PostStatus approvedStatus,
+                                   @Param("hiddenStatus") PostStatus hiddenStatus,
+                                   @Param("hiddenReason") String hiddenReason);
 
 }

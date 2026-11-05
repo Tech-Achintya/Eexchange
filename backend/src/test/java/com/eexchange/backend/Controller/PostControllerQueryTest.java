@@ -162,6 +162,6 @@ class PostControllerQueryTest {
         return new PostDetailResponse(5L, "Post 5", "A long enough description",
                 new BigDecimal("100.00"), ListingType.SELL, null, ItemCondition.GOOD,
                 5L, "Books", PostStatus.APPROVED, null, 10L, 7L, "Alice",
-                List.of("https://cdn.test/a.jpg"), Instant.now(), Instant.now());
+                List.of("https://cdn.test/a.jpg"), Instant.now(), Instant.now(), false);
     }
 }

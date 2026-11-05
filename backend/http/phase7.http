@@ -1,0 +1,89 @@
+### Phase 7 - interest messages
+@host = http://localhost:8080
+@userA = paste-owner-token
+@userB = paste-buyer-token
+@postId = 1
+@interestId = 1
+
+### 1. User A creates a post, then User B sends interest -> 201
+POST {{host}}/api/posts/{{postId}}/interest
+Authorization: Bearer {{userB}}
+Content-Type: application/json
+
+{
+  "message": "Is this still available? I can pick it up today.",
+  "contactInfo": "9876543210"
+}
+
+### 2. User B tries again -> 409
+POST {{host}}/api/posts/{{postId}}/interest
+Authorization: Bearer {{userB}}
+Content-Type: application/json
+
+{
+  "message": "Sending a second message.",
+  "contactInfo": "9876543210"
+}
+
+### 3. User B messages their own post -> 400
+POST {{host}}/api/posts/{{postId}}/interest
+Authorization: Bearer {{userA}}
+Content-Type: application/json
+
+{
+  "message": "Talking to myself.",
+  "contactInfo": "9876543210"
+}
+
+### 4. User A sees it in received -> 200
+GET {{host}}/api/interests/received?unreadOnly=false&page=0&size=20
+Authorization: Bearer {{userA}}
+
+### 5. User A's unread badge -> 200, count >= 1
+GET {{host}}/api/interests/unread-count
+Authorization: Bearer {{userA}}
+
+### 6. User B sees it in sent -> 200
+GET {{host}}/api/interests/sent?page=0&size=20
+Authorization: Bearer {{userB}}
+
+### 7. User B must not mark it read -> 404
+PATCH {{host}}/api/interests/{{interestId}}/read
+Authorization: Bearer {{userB}}
+
+### 8. User A marks it read -> 200
+PATCH {{host}}/api/interests/{{interestId}}/read
+Authorization: Bearer {{userA}}
+
+### 9. Mark read again -> 200 (idempotent)
+PATCH {{host}}/api/interests/{{interestId}}/read
+Authorization: Bearer {{userA}}
+
+### 10. Unread count drops -> 0 for that message
+GET {{host}}/api/interests/unread-count
+Authorization: Bearer {{userA}}
+
+### 11. Post detail as User B now shows interested=true
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{userB}}
+
+### 12. Validation: short message -> 400
+POST {{host}}/api/posts/{{postId}}/interest
+Authorization: Bearer {{userB}}
+Content-Type: application/json
+
+{"message": "hi", "contactInfo": "9876543210"}
+
+### 13. Validation: missing contactInfo -> 400
+POST {{host}}/api/posts/{{postId}}/interest
+Authorization: Bearer {{userB}}
+Content-Type: application/json
+
+{"message": "Is this still available?"}
+
+### 14. Invalid post / other college / expired -> 404
+POST {{host}}/api/posts/999999/interest
+Authorization: Bearer {{userB}}
+Content-Type: application/json
+
+{"message": "Is this still available?", "contactInfo": "9876543210"}

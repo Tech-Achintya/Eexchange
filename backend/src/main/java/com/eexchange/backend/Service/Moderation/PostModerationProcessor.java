@@ -12,7 +12,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.eexchange.backend.Entity.Enums.UserStatus;
+import com.eexchange.backend.Entity.User;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -76,7 +77,13 @@ public class PostModerationProcessor {
 
             switch (result.outcome()) {
                 case APPROVED -> {
-                    post.setStatus(PostStatus.APPROVED);
+                    if (isEffectivelyBlocked(post.getUser())) {
+                        post.setStatus(PostStatus.HIDDEN);
+                        post.setHiddenReason("USER_BLOCKED");
+                    } else {
+                        post.setStatus(PostStatus.APPROVED);
+                        post.setHiddenReason(null);
+                    }
                     post.setRejectionReason(null);
                 }
                 case REJECTED -> {
@@ -117,5 +124,19 @@ public class PostModerationProcessor {
         map.put("attempts", attempts);
         map.put("reviewedAt", Instant.now().toString());
         return map;
+    }
+    // An expired TEMP block counts as active, matching JWTfilter and login.
+    private boolean isEffectivelyBlocked(User user) {
+        if (user == null) {
+            return false;
+        }
+        if (user.getStatus() == UserStatus.PERM_BLOCKED) {
+            return true;
+        }
+        if (user.getStatus() == UserStatus.TEMP_BLOCKED) {
+            return user.getBlockedUntil() != null
+                    && user.getBlockedUntil().isAfter(Instant.now());
+        }
+        return false;
     }
 }

@@ -26,6 +26,7 @@ public record PostDetailResponse(
         String sellerName,
         List<String> imageUrls,
         Instant createdAt,
-        Instant expiresAt
+        Instant expiresAt,
+        boolean interested
 ) {
 }

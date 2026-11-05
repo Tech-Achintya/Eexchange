@@ -1,0 +1,155 @@
+### Phase 6 - admin user management
+@host = http://localhost:8080
+@moderator = paste-moderator-token
+@superAdmin = paste-super-admin-token
+@user1 = paste-user1-token
+@userId = 1
+@userPostId = 1
+
+### ---------- admin login ----------
+POST {{host}}/api/admin/auth/login
+Content-Type: application/json
+
+{
+  "username": "your_admin_username",
+  "password": "your_admin_password"
+}
+
+### ---------- admin user list / detail ----------
+
+### 1. List users, search email/name, newest first -> 200
+GET {{host}}/api/admin/users?q=rahul&page=0&size=20
+Authorization: Bearer {{moderator}}
+
+### 2. List TEMP_BLOCKED users in one college -> 200
+GET {{host}}/api/admin/users?status=TEMP_BLOCKED&collegeId=1&page=0&size=20
+Authorization: Bearer {{moderator}}
+
+### 3. Detail: block fields, post counts, open reports, last 10 audit entries -> 200
+GET {{host}}/api/admin/users/{{userId}}
+Authorization: Bearer {{moderator}}
+
+### ---------- TEMP block / unblock ----------
+
+### 4. TEMP block -> 200
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{
+  "type": "TEMP",
+  "until": "2026-12-31T23:59:59Z",
+  "reason": "Repeated spam in listing titles."
+}
+
+### 5. The blocked user's token is rejected -> 403, message contains the end date
+GET {{host}}/api/posts
+Authorization: Bearer {{user1}}
+
+### 6. Their APPROVED post is gone from the feed -> 200 without that post
+GET {{host}}/api/posts
+Authorization: Bearer {{user1}}
+
+### 7. Admin detail shows HIDDEN + USER_BLOCKED for that post -> 200
+GET {{host}}/api/admin/posts?status=HIDDEN&q=your-post-title
+Authorization: Bearer {{moderator}}
+
+### 8. Unblock -> 200
+POST {{host}}/api/admin/users/{{userId}}/unblock
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{
+  "reason": "Appeal accepted after review."
+}
+
+### 9. The user token works again -> 200
+GET {{host}}/api/posts
+Authorization: Bearer {{user1}}
+
+### 10. The post is back in the feed -> 200
+GET {{host}}/api/posts
+Authorization: Bearer {{user1}}
+
+### 11. Unblock an ACTIVE user -> 409
+POST {{host}}/api/admin/users/{{userId}}/unblock
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"reason": "Already active."}
+
+### ---------- PERM block ----------
+
+### 12. Moderator cannot PERM block -> 403
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{
+  "type": "PERM",
+  "reason": "Confirmed fraud and repeated policy violations."
+}
+
+### 13. Super admin PERM block -> 200, all their posts are deleted
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{superAdmin}}
+Content-Type: application/json
+
+{
+  "type": "PERM",
+  "reason": "Confirmed fraud and repeated policy violations."
+}
+
+### 14. Their posts are gone -> no rows for this user
+GET {{host}}/api/admin/posts?q=your-post-title
+Authorization: Bearer {{superAdmin}}
+
+### 15. Login now fails -> 403 permanently suspended
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "blocked-user@college.edu",
+  "password": "their-password"
+}
+
+### 16. Moderator cannot PERM unblock -> 403
+POST {{host}}/api/admin/users/{{userId}}/unblock
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"reason": "Appeal accepted."}
+
+### 17. Super admin PERM unblock -> 200 (deleted posts are NOT restored)
+POST {{host}}/api/admin/users/{{userId}}/unblock
+Authorization: Bearer {{superAdmin}}
+Content-Type: application/json
+
+{"reason": "Appeal accepted."}
+
+### ---------- validation / security ----------
+
+### 18. Reason shorter than 5 characters -> 400
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"type": "TEMP", "until": "2026-12-31T23:59:59Z", "reason": "x"}
+
+### 19. TEMP block without until -> 400
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"type": "TEMP", "reason": "Repeated spam."}
+
+### 20. TEMP block with a past until -> 400
+POST {{host}}/api/admin/users/{{userId}}/block
+Authorization: Bearer {{moderator}}
+Content-Type: application/json
+
+{"type": "TEMP", "until": "2020-01-01T00:00:00Z", "reason": "Repeated spam."}
+
+### 21. User token on an admin route -> 401
+GET {{host}}/api/admin/users
+Authorization: Bearer {{user1}}
