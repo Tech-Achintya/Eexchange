@@ -106,8 +106,8 @@ public class InterestService {
                         HtmlEscaper.escape(contactInfo),
                         HtmlEscaper.escape(postTitle));
             } catch (RuntimeException ex) {
-                log.warn("Interest email failed for post {} (recipient {})",
-                        postId, ownerEmail, ex);
+                // Never log the owner's email address.
+                log.warn("Interest email failed for post {}", postId, ex);
             }
         });
     }

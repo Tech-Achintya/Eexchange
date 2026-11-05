@@ -6,6 +6,7 @@ import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
 import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
+import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Entity.User;
@@ -16,17 +17,22 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import com.eexchange.backend.Entity.Enums.UserStatus;
-import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,6 +47,8 @@ class PostModerationProcessorTest {
     private ModerationProperties properties;
     private StringRedisTemplate redisTemplate;
     private ValueOperations<String, String> valueOperations;
+    private PlatformTransactionManager transactionManager;
+    private AtomicInteger openTransactions;
     private PostModerationProcessor processor;
 
     @BeforeEach
@@ -55,6 +63,22 @@ class PostModerationProcessorTest {
         redisTemplate = mock(StringRedisTemplate.class);
         valueOperations = mock(ValueOperations.class);
 
+        openTransactions = new AtomicInteger();
+        transactionManager = mock(PlatformTransactionManager.class);
+        when(transactionManager.getTransaction(any(TransactionDefinition.class)))
+                .thenAnswer(invocation -> {
+                    openTransactions.incrementAndGet();
+                    return new SimpleTransactionStatus();
+                });
+        doAnswer(invocation -> {
+            openTransactions.decrementAndGet();
+            return null;
+        }).when(transactionManager).commit(any());
+        doAnswer(invocation -> {
+            openTransactions.decrementAndGet();
+            return null;
+        }).when(transactionManager).rollback(any());
+
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class)))
                 .thenReturn(true);
@@ -63,13 +87,14 @@ class PostModerationProcessorTest {
 
         processor = new PostModerationProcessor(
                 postRepository, storageService, moderationService,
-                new RejectionMessages(), properties, redisTemplate);
+                new RejectionMessages(), properties, redisTemplate,
+                transactionManager);
     }
 
     @Test
     void approvedTransitionSavesStatusAndAttempts() {
         Post post = pendingPost();
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
         when(moderationService.review(any()))
                 .thenReturn(ModerationService.ModerationResult.approved());
 
@@ -90,7 +115,7 @@ class PostModerationProcessorTest {
     @Test
     void rejectedTransitionUsesFriendlyMessage() {
         Post post = pendingPost();
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
         when(moderationService.review(any()))
                 .thenReturn(ModerationService.ModerationResult.rejected("SCAM"));
 
@@ -107,7 +132,7 @@ class PostModerationProcessorTest {
     void retryLaterKeepsPendingAndIncrementsAttempts() {
         Post post = pendingPost();
         post.setModerationAttempts(2);
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
         when(moderationService.review(any()))
                 .thenReturn(ModerationService.ModerationResult.retryLater());
 
@@ -122,7 +147,7 @@ class PostModerationProcessorTest {
     void nonPendingPostIsSkipped() {
         Post post = pendingPost();
         post.setStatus(PostStatus.APPROVED);
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
 
         processor.process(1L);
 
@@ -143,7 +168,7 @@ class PostModerationProcessorTest {
     @Test
     void lockIsReleasedAfterProcessing() {
         Post post = pendingPost();
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
         when(moderationService.review(any()))
                 .thenReturn(ModerationService.ModerationResult.approved());
 
@@ -156,7 +181,7 @@ class PostModerationProcessorTest {
     void maxAttemptsIsWarnedOnlyWhenExceeded() {
         Post post = pendingPost();
         post.setModerationAttempts(4);
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        givenPost(post);
         when(moderationService.review(any()))
                 .thenReturn(ModerationService.ModerationResult.retryLater());
 
@@ -166,7 +191,104 @@ class PostModerationProcessorTest {
         assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
     }
 
+    @Test
+    void approvedVerdictForTemporarilyBlockedOwnerIsHiddenAsUserBlocked() {
+        Post post = pendingPost();
+        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
+        post.getUser().setBlockedUntil(Instant.now().plusSeconds(3600));
+
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.HIDDEN);
+        assertThat(post.getHiddenReason()).isEqualTo("USER_BLOCKED");
+        assertThat(post.getRejectionReason()).isNull();
+    }
+
+    @Test
+    void approvedVerdictForExpiredTempBlockStillApproves() {
+        Post post = pendingPost();
+        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
+        post.getUser().setBlockedUntil(Instant.now().minusSeconds(60));
+
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.APPROVED);
+        assertThat(post.getHiddenReason()).isNull();
+    }
+
+    @Test
+    void postDeletedDuringReviewStaysDeletedAndVerdictIsDiscarded() {
+        Post snapshot = pendingPost();
+        Post deleted = pendingPost();
+        deleted.setStatus(PostStatus.DELETED);
+
+        when(postRepository.findById(1L)).thenReturn(Optional.of(snapshot));
+        when(postRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(deleted));
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(deleted.getStatus()).isEqualTo(PostStatus.DELETED);
+        assertThat(deleted.getModerationAttempts()).isZero();
+        assertThat(deleted.getAiReviewResult()).isNull();
+        assertThat(deleted.getRejectionReason()).isNull();
+        verify(postRepository, never()).save(any());
+    }
+
+    @Test
+    void postEditedDuringReviewIsNotApprovedAndStaysPending() {
+        Post snapshot = pendingPost();
+        Post edited = pendingPost();
+        edited.setTitle("Edited title after moderation started");
+        edited.setModerationAttempts(0);
+
+        when(postRepository.findById(1L)).thenReturn(Optional.of(snapshot));
+        when(postRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(edited));
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.approved());
+
+        processor.process(1L);
+
+        assertThat(edited.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
+        assertThat(edited.getModerationAttempts()).isZero();
+        assertThat(edited.getAiReviewResult()).isNull();
+        assertThat(edited.getRejectionReason()).isNull();
+        verify(postRepository, never()).save(any());
+    }
+
+    @Test
+    void reviewRunsOutsideAnyTransaction() throws Exception {
+        Post post = pendingPost();
+        givenPost(post);
+        when(moderationService.review(any())).thenAnswer(invocation -> {
+            assertThat(openTransactions.get()).isZero();
+            return ModerationService.ModerationResult.approved();
+        });
+
+        processor.process(1L);
+
+        assertThat(PostModerationProcessor.class
+                .getMethod("process", Long.class)
+                .isAnnotationPresent(Transactional.class))
+                .isFalse();
+        assertThat(post.getStatus()).isEqualTo(PostStatus.APPROVED);
+    }
+
     // ---------------------------------------------------------- fixtures
+
+    private void givenPost(Post post) {
+        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
+        when(postRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(post));
+    }
 
     private Post pendingPost() {
         Post post = Post.builder()
@@ -187,37 +309,5 @@ class PostModerationProcessorTest {
                 .id(100L).post(post).url("posts/7/a.jpg").position((short) 0).build());
 
         return post;
-    }
-    @Test
-    void approvedVerdictForTemporarilyBlockedOwnerIsHiddenAsUserBlocked() {
-        Post post = pendingPost();
-        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
-        post.getUser().setBlockedUntil(Instant.now().plusSeconds(3600));
-
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
-        when(moderationService.review(any()))
-                .thenReturn(ModerationService.ModerationResult.approved());
-
-        processor.process(1L);
-
-        assertThat(post.getStatus()).isEqualTo(PostStatus.HIDDEN);
-        assertThat(post.getHiddenReason()).isEqualTo("USER_BLOCKED");
-        assertThat(post.getRejectionReason()).isNull();
-    }
-
-    @Test
-    void approvedVerdictForExpiredTempBlockStillApproves() {
-        Post post = pendingPost();
-        post.getUser().setStatus(UserStatus.TEMP_BLOCKED);
-        post.getUser().setBlockedUntil(Instant.now().minusSeconds(60));
-
-        when(postRepository.findById(1L)).thenReturn(Optional.of(post));
-        when(moderationService.review(any()))
-                .thenReturn(ModerationService.ModerationResult.approved());
-
-        processor.process(1L);
-
-        assertThat(post.getStatus()).isEqualTo(PostStatus.APPROVED);
-        assertThat(post.getHiddenReason()).isNull();
     }
 }

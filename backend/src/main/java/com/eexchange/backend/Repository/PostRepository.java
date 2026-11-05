@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -84,6 +86,12 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     @EntityGraph(attributePaths = {"category", "user"})
     @Query("select p from Post p where p.id = :id")
     Optional<Post> findDetailById(@Param("id") Long id);
+
+    // Moderation write phase: lock only the post row so an edit/delete cannot
+    // race the verdict. Lazy images/user are loaded inside the same short tx.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Post p where p.id = :id")
+    Optional<Post> findByIdForUpdate(@Param("id") Long id);
 
     // My items: everything except DELETED, optional status filter.
     @EntityGraph(attributePaths = {"category", "user"})
