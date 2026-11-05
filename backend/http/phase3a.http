@@ -4,7 +4,7 @@
 @host = http://localhost:8080
 @token = paste-user-access-token-here
 
-### 1. Create a SELL post with 2 images  -> 201
+### 1. Create a priced post with 2 images  -> 201
 ###    Use the "Select Files" action IntelliJ shows on each < ./path line.
 POST {{host}}/api/posts
 Authorization: Bearer {{token}}
@@ -18,7 +18,6 @@ Content-Type: application/json
   "title": "Used calculus textbook",
   "description": "Lightly used, no highlights in the first ten chapters.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 450.00,
   "condition": "GOOD"
 }
@@ -34,26 +33,7 @@ Content-Type: image/jpeg
 < ./test-images/back.jpg
 --WebAppBoundary--
 
-### 2. Create an EXCHANGE post, no images  -> 201
-POST {{host}}/api/posts
-Authorization: Bearer {{token}}
-Content-Type: multipart/form-data; boundary=WebAppBoundary
-
---WebAppBoundary
-Content-Disposition: form-data; name="post"
-Content-Type: application/json
-
-{
-  "title": "Scientific calculator swap",
-  "description": "Want to trade my FX-991 for a graphing calculator.",
-  "categoryId": 2,
-  "listingType": "EXCHANGE",
-  "exchangeWanted": "Graphing calculator",
-  "condition": "LIKE_NEW"
-}
---WebAppBoundary--
-
-### 3. FREE post with a price  -> 400 (db price-consistency rule)
+### 2. Create a free post (price 0)  -> 201
 POST {{host}}/api/posts
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=WebAppBoundary
@@ -66,13 +46,17 @@ Content-Type: application/json
   "title": "Free study guides",
   "description": "Giving away my first-year study guides.",
   "categoryId": 1,
-  "listingType": "FREE",
-  "price": 10,
+  "price": 0,
   "condition": "FAIR"
 }
+--WebAppBoundary
+Content-Disposition: form-data; name="images"; filename="cover.jpg"
+Content-Type: image/jpeg
+
+< ./test-images/cover.jpg
 --WebAppBoundary--
 
-### 4. SELL with no price  -> 400
+### 3. Negative price  -> 400
 POST {{host}}/api/posts
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=WebAppBoundary
@@ -85,7 +69,24 @@ Content-Type: application/json
   "title": "Desk lamp for sale",
   "description": "Working desk lamp, minor scratch on the base.",
   "categoryId": 3,
-  "listingType": "SELL",
+  "price": -10,
+  "condition": "GOOD"
+}
+--WebAppBoundary--
+
+### 4. No price  -> 400
+POST {{host}}/api/posts
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Desk lamp for sale",
+  "description": "Working desk lamp, minor scratch on the base.",
+  "categoryId": 3,
   "condition": "GOOD"
 }
 --WebAppBoundary--
@@ -103,7 +104,6 @@ Content-Type: application/json
   "title": "Suspicious upload",
   "description": "This file is not really a JPEG image.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 1,
   "condition": "GOOD"
 }
@@ -130,7 +130,6 @@ Content-Type: application/json
   "title": "Unknown category post",
   "description": "The category id below does not exist.",
   "categoryId": 999999,
-  "listingType": "SELL",
   "price": 5,
   "condition": "GOOD"
 }
@@ -148,7 +147,6 @@ Content-Type: application/json
   "title": "Unauthenticated post",
   "description": "Should never reach the service layer.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 5,
   "condition": "GOOD"
 }

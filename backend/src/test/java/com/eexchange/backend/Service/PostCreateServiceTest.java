@@ -5,7 +5,6 @@ import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.User;
@@ -31,7 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -80,66 +78,76 @@ class PostCreateServiceTest {
     }
 
     @Test
-    void sellWithoutPriceIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
+    void priceIsRequired() {
+        PostCreateRequest request = validRequest();
         request.setPrice(null);
 
         AppException ex = assertThrows(AppException.class,
                 () -> service.createPost(1L, request, List.of()));
 
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("Price");
         verifyNoInteractions(storageService);
     }
 
     @Test
-    void sellWithExchangeWantedIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
-        request.setExchangeWanted("A calculator");
+    void negativePriceIsRejected() {
+        PostCreateRequest request = validRequest();
+        request.setPrice(new BigDecimal("-1.00"));
 
         AppException ex = assertThrows(AppException.class,
                 () -> service.createPost(1L, request, List.of()));
 
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("negative");
     }
 
     @Test
-    void freeWithPriceIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.FREE);
-        request.setPrice(BigDecimal.TEN);
+    void zeroPriceIsAcceptedAsFree() {
+        PostCreateRequest request = validRequest();
+        request.setPrice(BigDecimal.ZERO);
+        MockMultipartFile image = new MockMultipartFile(
+                "images", "photo.jpg", "image/jpeg", JPEG_BYTES);
 
-        AppException ex = assertThrows(AppException.class,
-                () -> service.createPost(1L, request, List.of()));
+        when(postRepository.saveAndFlush(any(Post.class))).thenAnswer(invocation -> {
+            Post post = invocation.getArgument(0);
+            post.setId(42L);
+            return post;
+        });
 
-        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        PostResponse response = service.createPost(1L, request, List.of(image));
+
+        assertThat(response.price()).isEqualByComparingTo(BigDecimal.ZERO);
+        verify(eventPublisher).publishEvent(new PostCreatedEvent(42L));
     }
 
     @Test
-    void exchangeWithoutExchangeWantedIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.EXCHANGE);
-        request.setPrice(null);
-        request.setExchangeWanted(null);
+    void priceWithThreeDecimalsIsRejected() {
+        PostCreateRequest request = validRequest();
+        request.setPrice(new BigDecimal("10.123"));
 
         AppException ex = assertThrows(AppException.class,
                 () -> service.createPost(1L, request, List.of()));
 
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("2 decimal");
     }
 
     @Test
-    void exchangeWithPriceIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.EXCHANGE);
-        request.setPrice(BigDecimal.ONE);
-        request.setExchangeWanted("A calculator");
+    void priceAboveMaximumIsRejected() {
+        PostCreateRequest request = validRequest();
+        request.setPrice(new BigDecimal("10000000.00"));
 
         AppException ex = assertThrows(AppException.class,
                 () -> service.createPost(1L, request, List.of()));
 
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("9999999.99");
     }
 
     @Test
     void renamedExeIsRejectedByMagicBytes() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
+        PostCreateRequest request = validRequest();
 
         // Content-Type and filename both claim JPEG; the bytes do not.
         MockMultipartFile fakeImage = new MockMultipartFile(
@@ -155,7 +163,7 @@ class PostCreateServiceTest {
 
     @Test
     void dbFailureDeletesAlreadyUploadedFiles() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
+        PostCreateRequest request = validRequest();
         MockMultipartFile image = new MockMultipartFile(
                 "images", "photo.jpg", "image/jpeg", JPEG_BYTES);
 
@@ -173,7 +181,7 @@ class PostCreateServiceTest {
 
     @Test
     void validPostIsSavedAsPendingReviewAndEventIsPublished() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
+        PostCreateRequest request = validRequest();
         MockMultipartFile image = new MockMultipartFile(
                 "images", "photo.jpg", "image/jpeg", JPEG_BYTES);
 
@@ -195,16 +203,13 @@ class PostCreateServiceTest {
         verify(eventPublisher).publishEvent(new PostCreatedEvent(42L));
     }
 
-    private PostCreateRequest validRequest(ListingType listingType) {
+    private PostCreateRequest validRequest() {
         PostCreateRequest request = new PostCreateRequest();
         request.setTitle("Used textbook");
         request.setDescription("A fine textbook for CS students");
         request.setCategoryId(5L);
-        request.setListingType(listingType);
+        request.setPrice(new BigDecimal("100.00"));
         request.setCondition(ItemCondition.GOOD);
-        if (listingType == ListingType.SELL) {
-            request.setPrice(new BigDecimal("100.00"));
-        }
         return request;
     }
 
@@ -222,7 +227,7 @@ class PostCreateServiceTest {
 
     @Test
     void postWithoutImagesIsRejected() {
-        PostCreateRequest request = validRequest(ListingType.SELL);
+        PostCreateRequest request = validRequest();
 
         AppException ex = assertThrows(AppException.class,
                 () -> service.createPost(1L, request, List.of()));

@@ -1,7 +1,7 @@
 package com.eexchange.backend.DTO.Request;
 
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
@@ -25,15 +25,11 @@ public class PostCreateRequest {
     @NotNull(message = "Category is required")
     private Long categoryId;
 
-    @NotNull(message = "Listing type is required")
-    private ListingType listingType;
-
-    @DecimalMin(value = "0.0", message = "Price cannot be negative")
-    @Digits(integer = 8, fraction = 2, message = "Price must have at most 8 integer and 2 decimal digits")
+    @NotNull(message = "Price is required")
+    @DecimalMin(value = "0.00", message = "Price cannot be negative")
+    @DecimalMax(value = "9999999.99", message = "Price cannot exceed 9999999.99")
+    @Digits(integer = 7, fraction = 2, message = "Price must have at most 2 decimal places")
     private BigDecimal price;
-
-    @Size(max = 255, message = "exchangeWanted cannot exceed 255 characters")
-    private String exchangeWanted;
 
     @NotNull(message = "Condition is required")
     private ItemCondition condition;

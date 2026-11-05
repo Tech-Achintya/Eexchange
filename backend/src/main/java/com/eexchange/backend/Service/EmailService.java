@@ -29,6 +29,7 @@ public class EmailService {
     private final String senderName;
     private final long otpTtlSeconds;
     private final long passwordResetTtlSeconds;
+    private final String appName;
 
     public EmailService(RestTemplateBuilder restTemplateBuilder,
                         Environment environment,
@@ -36,7 +37,8 @@ public class EmailService {
                         @Value("${BREVO_SENDER_EMAIL}") String senderEmail,
                         @Value("${BREVO_SENDER_NAME:EExchange}") String senderName,
                         @Value("${app.otp.ttl-seconds:600}") long otpTtlSeconds,
-                        @Value("${app.password-reset.ttl-seconds:900}") long passwordResetTtlSeconds) {
+                        @Value("${app.password-reset.ttl-seconds:900}") long passwordResetTtlSeconds,
+                        @Value("${app.name:Eexchange}") String appName) {
         SimpleClientHttpRequestFactory requestFactory =
                 new SimpleClientHttpRequestFactory();
 
@@ -49,6 +51,7 @@ public class EmailService {
         this.senderName = senderName;
         this.otpTtlSeconds = otpTtlSeconds;
         this.passwordResetTtlSeconds = passwordResetTtlSeconds;
+        this.appName = appName;
     }
 
 
@@ -64,7 +67,7 @@ public class EmailService {
                 : "Account Signup Verification";
 
         String html = "<div style='font-family: Arial, sans-serif; padding: 20px; color: #333;'>"
-                + "<h2 style='color: #4F46E5;'>Eexchange " + title + "</h2>"
+                + "<h2 style='color: #4F46E5;'>" + appName + " " + title + "</h2>"
                 + "<p>Use the following 6-digit OTP to complete your request:</p>"
                 + "<h1 style='font-size: 32px; letter-spacing: 5px; color: #111827;'>" + otpCode + "</h1>"
                 + "<p style='color: #6B7280;'>This code is valid for <strong>"
@@ -72,7 +75,7 @@ public class EmailService {
                 + " minutes</strong>. Do not share it with anyone.</p>"
                 + "</div>";
 
-        boolean sent = sendEmail(toEmail, "Your Eexchange " + title, html);
+        boolean sent = sendEmail(toEmail, "Your " + appName + " " + title, html);
         if (!sent && onFailure != null) {
             onFailure.run();
         }
@@ -86,7 +89,7 @@ public class EmailService {
 
         String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 8px;'>"
                 + "<h2 style='color: #4F46E5; margin-bottom: 8px;'>Password Reset Request</h2>"
-                + "<p>We received a request to reset your Eexchange account password.</p>"
+                + "<p>We received a request to reset your " + appName + " account password.</p>"
                 + "<p>Click the button below to set a new password:</p>"
                 + "<div style='margin: 24px 0;'>"
                 + "<a href='" + resetLink + "' style='background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Reset Password</a>"
@@ -98,7 +101,7 @@ public class EmailService {
                 + resetLink + "</p>"
                 + "</div>";
 
-        boolean sent = sendEmail(toEmail, "Reset Your Eexchange Password", html);
+        boolean sent = sendEmail(toEmail, "Reset Your " + appName + " Password", html);
         if (!sent && onFailure != null) {
             onFailure.run();
         }
@@ -174,13 +177,13 @@ public class EmailService {
                 : "Your account is suspended until <strong>" + blockedUntil + "</strong>.";
 
         String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #b91c1c;'>Eexchange account suspended</h2>"
+                + "<h2 style='color: #b91c1c;'>" + appName + " account suspended</h2>"
                 + "<p>" + duration + "</p>"
                 + "<p><strong>Reason:</strong> " + reason + "</p>"
                 + "<p style='color: #6b7280;'>If you believe this was a mistake, contact support.</p>"
                 + "</div>";
 
-        sendEmail(toEmail, "Your Eexchange account has been blocked", html);
+        sendEmail(toEmail, "Your " + appName + " account has been blocked", html);
     }
 
     @Async("emailTaskExecutor")
@@ -190,11 +193,11 @@ public class EmailService {
         }
 
         String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #15803d;'>Your Eexchange account is active again</h2>"
+                + "<h2 style='color: #15803d;'>Your " + appName + " account is active again</h2>"
                 + "<p>You can now log in and use the marketplace normally.</p>"
                 + "</div>";
 
-        sendEmail(toEmail, "Your Eexchange account has been unblocked", html);
+        sendEmail(toEmail, "Your " + appName + " account has been unblocked", html);
     }
 
     @Async("emailTaskExecutor")
@@ -217,6 +220,6 @@ public class EmailService {
                 + "<p style='color: #6b7280;'>Reply using the contact info above.</p>"
                 + "</div>";
 
-        sendEmail(toEmail, "New interest in your Eexchange post", html);
+        sendEmail(toEmail, "New interest in your " + appName + " post", html);
     }
 }

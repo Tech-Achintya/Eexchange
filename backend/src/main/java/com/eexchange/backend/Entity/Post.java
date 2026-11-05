@@ -1,7 +1,6 @@
 package com.eexchange.backend.Entity;
 
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -47,15 +46,8 @@ public class Post {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "listing_type", nullable = false, length = 20)
-    private ListingType listingType;
-
-    @Column(precision = 10, scale = 2)
+    @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
-
-    @Column(name = "exchange_wanted")
-    private String exchangeWanted;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

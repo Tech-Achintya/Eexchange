@@ -5,7 +5,6 @@ import com.eexchange.backend.DTO.Request.PostUpdateRequest;
 import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
@@ -91,9 +90,7 @@ public class PostService {
                     .category(fields.category())
                     .title(fields.title())
                     .description(fields.description())
-                    .listingType(fields.listingType())
                     .price(fields.price())
-                    .exchangeWanted(fields.exchangeWanted())
                     .condition(fields.condition())
                     .status(PostStatus.PENDING_REVIEW)
                     .expiresAt(Instant.now().plus(expiryDays, ChronoUnit.DAYS))
@@ -199,9 +196,7 @@ public class PostService {
             post.setCategory(fields.category());
             post.setTitle(fields.title());
             post.setDescription(fields.description());
-            post.setListingType(fields.listingType());
             post.setPrice(fields.price());
-            post.setExchangeWanted(fields.exchangeWanted());
             post.setCondition(fields.condition());
 
             // Any edit needs a fresh AI review.
@@ -278,9 +273,6 @@ public class PostService {
                 .orElseThrow(() -> new AppException(
                         "Category not found or inactive", HttpStatus.BAD_REQUEST));
 
-        if (request.getListingType() == null) {
-            throw new AppException("Listing type is required", HttpStatus.BAD_REQUEST);
-        }
         if (request.getCondition() == null) {
             throw new AppException("Condition is required", HttpStatus.BAD_REQUEST);
         }
@@ -297,44 +289,31 @@ public class PostService {
                     HttpStatus.BAD_REQUEST);
         }
 
-        BigDecimal price = request.getPrice();
-        String exchangeWanted = trimToNull(request.getExchangeWanted());
+        BigDecimal price = validatePrice(request.getPrice());
 
-        switch (request.getListingType()) {
-            case SELL -> {
-                if (price == null || price.signum() < 0) {
-                    throw new AppException("SELL posts require a price of 0 or more",
-                            HttpStatus.BAD_REQUEST);
-                }
-                if (exchangeWanted != null) {
-                    throw new AppException("SELL posts cannot have an exchangeWanted value",
-                            HttpStatus.BAD_REQUEST);
-                }
-            }
-            case FREE -> {
-                if (price != null) {
-                    throw new AppException("FREE posts cannot have a price",
-                            HttpStatus.BAD_REQUEST);
-                }
-                if (exchangeWanted != null) {
-                    throw new AppException("FREE posts cannot have an exchangeWanted value",
-                            HttpStatus.BAD_REQUEST);
-                }
-            }
-            case EXCHANGE -> {
-                if (price != null) {
-                    throw new AppException("EXCHANGE posts cannot have a price",
-                            HttpStatus.BAD_REQUEST);
-                }
-                if (exchangeWanted == null) {
-                    throw new AppException("EXCHANGE posts require an exchangeWanted value",
-                            HttpStatus.BAD_REQUEST);
-                }
-            }
+        return new ValidPost(title, description, category, price,
+                request.getCondition());
+    }
+
+    // Shared by create and update: one price rule, matching NUMERIC(10,2).
+    private BigDecimal validatePrice(BigDecimal price) {
+        if (price == null) {
+            throw new AppException("Price is required",
+                    HttpStatus.BAD_REQUEST);
         }
-
-        return new ValidPost(title, description, category, request.getListingType(),
-                price, exchangeWanted, request.getCondition());
+        if (price.signum() < 0) {
+            throw new AppException("Price cannot be negative",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (price.compareTo(new BigDecimal("9999999.99")) > 0) {
+            throw new AppException("Price cannot exceed 9999999.99",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (price.stripTrailingZeros().scale() > 2) {
+            throw new AppException("Price must have at most 2 decimal places",
+                    HttpStatus.BAD_REQUEST);
+        }
+        return price;
     }
 
     // Reads, size-checks and magic-byte checks. Never trusts the filename.
@@ -453,8 +432,6 @@ public class PostService {
                 post.getTitle(),
                 post.getDescription(),
                 post.getPrice(),
-                post.getListingType(),
-                post.getExchangeWanted(),
                 post.getCondition(),
                 post.getCategory().getId(),
                 post.getCategory().getName(),
@@ -475,20 +452,10 @@ public class PostService {
         return value == null ? "" : value.trim();
     }
 
-    private String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
     private record ValidPost(String title,
                              String description,
                              Category category,
-                             ListingType listingType,
                              BigDecimal price,
-                             String exchangeWanted,
                              ItemCondition condition) {
     }
 

@@ -3,7 +3,6 @@ package com.eexchange.backend.Service;
 import com.eexchange.backend.DTO.Response.PageResponse;
 import com.eexchange.backend.DTO.Response.PostCardResponse;
 import com.eexchange.backend.DTO.Response.PostDetailResponse;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
@@ -47,7 +46,6 @@ public class PostQueryService {
 
     public PageResponse<PostCardResponse> feed(Long userId,
                                                Long categoryId,
-                                               ListingType type,
                                                String q,
                                                BigDecimal minPrice,
                                                BigDecimal maxPrice,
@@ -66,7 +64,6 @@ public class PostQueryService {
                 PostStatus.APPROVED,
                 Instant.now(),
                 categoryId,
-                type,
                 likePattern(q),
                 minPrice,
                 maxPrice,
@@ -181,7 +178,6 @@ public class PostQueryService {
                 post.getId(),
                 post.getTitle(),
                 post.getPrice(),
-                post.getListingType(),
                 post.getCondition(),
                 firstImageKey == null ? null : storageService.publicUrl(firstImageKey),
                 post.getCategory().getName(),
@@ -197,8 +193,6 @@ public class PostQueryService {
                 post.getTitle(),
                 post.getDescription(),
                 post.getPrice(),
-                post.getListingType(),
-                post.getExchangeWanted(),
                 post.getCondition(),
                 post.getCategory().getId(),
                 post.getCategory().getName(),
@@ -227,11 +221,10 @@ public class PostQueryService {
         }
 
         return switch (sort.toLowerCase(Locale.ROOT)) {
-            // NULLS LAST so FREE/EXCHANGE posts do not dominate price sorts.
             case "priceasc" -> Sort.by(
-                    Sort.Order.asc("price").nullsLast(), Sort.Order.desc("id"));
+                    Sort.Order.asc("price"), Sort.Order.desc("id"));
             case "pricedesc" -> Sort.by(
-                    Sort.Order.desc("price").nullsLast(), Sort.Order.desc("id"));
+                    Sort.Order.desc("price"), Sort.Order.desc("id"));
             default -> throw new AppException(
                     "Invalid sort. Use newest, priceAsc or priceDesc",
                     HttpStatus.BAD_REQUEST);

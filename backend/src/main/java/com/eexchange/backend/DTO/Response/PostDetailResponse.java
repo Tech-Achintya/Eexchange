@@ -1,7 +1,6 @@
 package com.eexchange.backend.DTO.Response;
 
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 
 import java.math.BigDecimal;
@@ -14,8 +13,6 @@ public record PostDetailResponse(
         String title,
         String description,
         BigDecimal price,
-        ListingType listingType,
-        String exchangeWanted,
         ItemCondition condition,
         Long categoryId,
         String categoryName,

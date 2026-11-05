@@ -6,7 +6,6 @@ import com.eexchange.backend.DTO.Response.PostCardResponse;
 import com.eexchange.backend.DTO.Response.PostDetailResponse;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;
 import com.eexchange.backend.Service.PostQueryService;
@@ -73,7 +72,7 @@ class PostControllerQueryTest {
 
     @Test
     void feedUsesDefaultPagingAndMapsCards() throws Exception {
-        when(postQueryService.feed(eq(7L), isNull(), isNull(), isNull(),
+        when(postQueryService.feed(eq(7L), isNull(), isNull(),
                 isNull(), isNull(), eq("newest"), eq(0), eq(12)))
                 .thenReturn(new PageResponse<>(List.of(card()), 0, 12, 1, 1));
 
@@ -89,22 +88,21 @@ class PostControllerQueryTest {
     @Test
     void feedForwardsEveryQueryParameter() throws Exception {
         when(postQueryService.feed(any(), any(), any(), any(), any(), any(),
-                any(), anyInt(), anyInt()))
+                anyInt(), anyInt()))
                 .thenReturn(new PageResponse<>(List.of(), 1, 5, 0, 0));
 
         mockMvc.perform(get("/api/posts")
                         .param("category", "3")
-                        .param("type", "SELL")
                         .param("q", "lamp")
                         .param("minPrice", "10")
-                        .param("maxPrice", "100")
+                        .param("maxPrice", "0")
                         .param("sort", "priceAsc")
                         .param("page", "1")
                         .param("size", "5"))
                 .andExpect(status().isOk());
 
-        verify(postQueryService).feed(eq(7L), eq(3L), eq(ListingType.SELL),
-                eq("lamp"), eq(new BigDecimal("10")), eq(new BigDecimal("100")),
+        verify(postQueryService).feed(eq(7L), eq(3L),
+                eq("lamp"), eq(new BigDecimal("10")), eq(BigDecimal.ZERO),
                 eq("priceAsc"), eq(1), eq(5));
     }
 
@@ -154,13 +152,13 @@ class PostControllerQueryTest {
 
     private PostCardResponse card() {
         return new PostCardResponse(1L, "Post 1", new BigDecimal("100.00"),
-                ListingType.SELL, ItemCondition.GOOD, "https://cdn.test/a.jpg",
+                ItemCondition.GOOD, "https://cdn.test/a.jpg",
                 "Books", "Alice", Instant.now());
     }
 
     private PostDetailResponse detail() {
         return new PostDetailResponse(5L, "Post 5", "A long enough description",
-                new BigDecimal("100.00"), ListingType.SELL, null, ItemCondition.GOOD,
+                new BigDecimal("100.00"), ItemCondition.GOOD,
                 5L, "Books", PostStatus.APPROVED, null, 10L, 7L, "Alice",
                 List.of("https://cdn.test/a.jpg"), Instant.now(), Instant.now(), false);
     }

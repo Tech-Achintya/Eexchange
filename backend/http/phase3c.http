@@ -17,7 +17,6 @@ Content-Type: application/json
   "title": "Used calculus textbook (updated)",
   "description": "Added photos of the inside pages.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 400.00,
   "condition": "LIKE_NEW",
   "removeImageIds": []
@@ -37,7 +36,6 @@ Content-Type: application/json
   "title": "Used calculus textbook (updated)",
   "description": "Removed the blurry photo.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 400.00,
   "condition": "LIKE_NEW",
   "removeImageIds": [{{imageId}}]
@@ -57,7 +55,6 @@ Content-Type: application/json
   "title": "Used calculus textbook (updated)",
   "description": "Added a clear photo of the cover.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 400.00,
   "condition": "LIKE_NEW"
 }
@@ -81,7 +78,6 @@ Content-Type: application/json
   "title": "Used calculus textbook (updated)",
   "description": "This would leave the post with no images.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 400.00,
   "condition": "LIKE_NEW",
   "removeImageIds": [1, 2, 3, 4, 5]
@@ -101,7 +97,6 @@ Content-Type: application/json
   "title": "Used calculus textbook (updated)",
   "description": "Image id from another post.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 400.00,
   "condition": "LIKE_NEW",
   "removeImageIds": [999999]
@@ -121,13 +116,12 @@ Content-Type: application/json
   "title": "Not mine at all",
   "description": "Should never be applied.",
   "categoryId": 1,
-  "listingType": "SELL",
   "price": 10.00,
   "condition": "GOOD"
 }
 --WebAppBoundary--
 
-### 7. Edit a SELL post with no price  -> 400 (shared validator)
+### 7. Edit a post with no price  -> 400 (shared validator)
 PATCH {{host}}/api/posts/{{postId}}
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=WebAppBoundary
@@ -140,7 +134,6 @@ Content-Type: application/json
   "title": "Used calculus textbook",
   "description": "Missing the mandatory price.",
   "categoryId": 1,
-  "listingType": "SELL",
   "condition": "GOOD"
 }
 --WebAppBoundary--

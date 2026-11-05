@@ -5,6 +5,7 @@ import com.eexchange.backend.Service.ModerationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpEntity;
@@ -18,6 +19,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -33,7 +35,7 @@ import java.util.regex.Pattern;
         havingValue = "openrouter", matchIfMissing = true)
 public class OpenRouterModerationService implements ModerationService {
 
-    public static final String PROMPT_VERSION = "v1";
+    public static final String PROMPT_VERSION = "v2";
     private static final String PROMPT_PATH = "moderation/system-prompt.txt";
     private static final Pattern LISTING_TAG = Pattern.compile("(?i)</?listing>");
 
@@ -43,6 +45,7 @@ public class OpenRouterModerationService implements ModerationService {
     private final ModerationBudget budget;
     private final String systemPrompt;
 
+    @Autowired
     public OpenRouterModerationService(ModerationProperties properties,
                                        ModerationBudget budget,
                                        ObjectMapper objectMapper) {
@@ -64,7 +67,8 @@ public class OpenRouterModerationService implements ModerationService {
 
     @Override
     public ModerationResult review(PostModerationContext context) {
-        String userMessage = buildUserMessage(context.getTitle(), context.getDescription());
+        String userMessage = buildUserMessage(
+                context.getTitle(), context.getDescription(), context.getPrice());
 
         // 1 = first try, plus malformedRetries extra tries for malformed answers only.
         int maxTries = 1 + Math.max(0, properties.getMalformedRetries());
@@ -160,11 +164,20 @@ public class OpenRouterModerationService implements ModerationService {
         return parts;
     }
 
-    private String buildUserMessage(String title, String description) {
+    private String buildUserMessage(String title, String description, BigDecimal price) {
         return "<listing>\n"
                 + "Title: " + neutralize(title) + "\n"
                 + "Description: " + neutralize(description) + "\n"
+                + "Price: " + formatPrice(price) + "\n"
                 + "</listing>";
+    }
+
+    private String formatPrice(BigDecimal price) {
+        if (price == null) {
+            return "unknown";
+        }
+        String value = price.stripTrailingZeros().toPlainString();
+        return price.signum() == 0 ? "0 (free)" : value;
     }
 
     // A user must not be able to close the wrapper and inject instructions.

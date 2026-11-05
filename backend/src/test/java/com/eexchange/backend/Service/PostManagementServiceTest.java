@@ -5,7 +5,6 @@ import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
@@ -323,7 +322,6 @@ class PostManagementServiceTest {
                 .category(category())
                 .title("Original title")
                 .description("Original description text")
-                .listingType(ListingType.SELL)
                 .price(new BigDecimal("100.00"))
                 .condition(ItemCondition.GOOD)
                 .status(status)
@@ -343,7 +341,6 @@ class PostManagementServiceTest {
         request.setTitle("Updated title");
         request.setDescription("Updated description text");
         request.setCategoryId(5L);
-        request.setListingType(ListingType.SELL);
         request.setPrice(new BigDecimal("150.00"));
         request.setCondition(ItemCondition.LIKE_NEW);
         return request;

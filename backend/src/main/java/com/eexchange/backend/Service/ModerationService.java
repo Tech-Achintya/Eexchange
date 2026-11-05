@@ -1,5 +1,6 @@
 package com.eexchange.backend.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface ModerationService {
@@ -10,6 +11,7 @@ public interface ModerationService {
             Long postId,
             String title,
             String description,
+            BigDecimal price,
             List<String> imageUrls
     ) {
         public List<String> getImageUrls(){
@@ -20,6 +22,9 @@ public interface ModerationService {
         }
         public String getDescription(){
             return description;
+        }
+        public BigDecimal getPrice(){
+            return price;
         }
     }
     enum Outcome {

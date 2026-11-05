@@ -6,7 +6,6 @@ import com.eexchange.backend.DTO.Response.PostDetailResponse;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.User;
@@ -79,46 +78,46 @@ class PostQueryServiceTest {
     void feedQueriesOnlyCallersCollege() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
         when(postRepository.findFeed(eq(10L), eq(PostStatus.APPROVED), any(),
-                isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(page(post(1L, 10L, PostStatus.APPROVED, future())));
 
-        service.feed(7L, null, null, null, null, null, "newest", 0, 12);
+        service.feed(7L, null, null, null, null, "newest", 0, 12);
 
         // College A's id only: college B is never queried.
         verify(postRepository).findFeed(eq(10L), eq(PostStatus.APPROVED), any(),
-                isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+                isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
         verify(postRepository, never()).findFeed(eq(20L), any(), any(), any(),
-                any(), any(), any(), any(), any());
+                any(), any(), any(), any());
     }
 
     @Test
     void othersUserOnlySeesOthersCollege() {
         when(userRepository.findById(8L)).thenReturn(Optional.of(user(8L, 99L, true)));
         when(postRepository.findFeed(eq(99L), eq(PostStatus.APPROVED), any(),
-                isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(page(post(1L, 99L, PostStatus.APPROVED, future())));
 
         PageResponse<PostCardResponse> result =
-                service.feed(8L, null, null, null, null, null, "newest", 0, 12);
+                service.feed(8L, null, null, null, null, "newest", 0, 12);
 
         assertThat(result.content()).hasSize(1);
         verify(postRepository).findFeed(eq(99L), eq(PostStatus.APPROVED), any(),
-                isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+                isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
     }
 
     @Test
     void feedPassesApprovedStatusAndNowToHideExpiredAndPendingPosts() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
         when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
-                any(), any(), any(Pageable.class))).thenReturn(page());
+                any(), any(Pageable.class))).thenReturn(page());
 
-        service.feed(7L, null, null, null, null, null, "newest", 0, 12);
+        service.feed(7L, null, null, null, null, "newest", 0, 12);
 
         ArgumentCaptor<PostStatus> status = ArgumentCaptor.forClass(PostStatus.class);
         ArgumentCaptor<Instant> now = ArgumentCaptor.forClass(Instant.class);
 
         verify(postRepository).findFeed(any(), status.capture(), now.capture(),
-                any(), any(), any(), any(), any(), any(Pageable.class));
+                any(), any(), any(), any(), any(Pageable.class));
 
         // The SQL keeps only APPROVED and expires_at > now.
         assertThat(status.getValue()).isEqualTo(PostStatus.APPROVED);
@@ -130,15 +129,15 @@ class PostQueryServiceTest {
     void feedEscapesLikeWildcardsAndForwardsFilters() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
         when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
-                any(), any(), any(Pageable.class))).thenReturn(page());
+                any(), any(Pageable.class))).thenReturn(page());
 
-        service.feed(7L, 3L, ListingType.SELL, "50%_off",
+        service.feed(7L, 3L, "50%_off",
                 new BigDecimal("10"), new BigDecimal("100"), "priceAsc", 0, 12);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
 
         verify(postRepository).findFeed(eq(10L), eq(PostStatus.APPROVED), any(),
-                eq(3L), eq(ListingType.SELL), eq("%50!%!_off%"),
+                eq(3L), eq("%50!%!_off%"),
                 eq(new BigDecimal("10")), eq(new BigDecimal("100")), pageable.capture());
 
         Sort sort = pageable.getValue().getSort();
@@ -149,20 +148,51 @@ class PostQueryServiceTest {
     }
 
     @Test
-    void sizeIsClampedToFiftyAndInvalidSortIsRejected() {
+    void maxPriceZeroIsForwardedToReturnOnlyFreeItems() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
         when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
-                any(), any(), any(Pageable.class))).thenReturn(page());
+                any(), any(Pageable.class))).thenReturn(page());
 
-        service.feed(7L, null, null, null, null, null, "newest", 0, 999);
+        service.feed(7L, null, null, null, BigDecimal.ZERO, "newest", 0, 12);
+
+        verify(postRepository).findFeed(eq(10L), eq(PostStatus.APPROVED), any(),
+                isNull(), isNull(), isNull(), eq(BigDecimal.ZERO), any(Pageable.class));
+    }
+
+    @Test
+    void priceDescSortOrdersByPriceDescending() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
+                any(), any(Pageable.class))).thenReturn(page());
+
+        service.feed(7L, null, null, null, null, "priceDesc", 0, 12);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(postRepository).findFeed(any(), any(), any(), any(), any(), any(),
-                any(), any(), pageable.capture());
+                any(), pageable.capture());
+
+        Sort sort = pageable.getValue().getSort();
+        assertThat(sort.getOrderFor("price"))
+                .isNotNull()
+                .extracting(Sort.Order::getDirection)
+                .isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    void sizeIsClampedToFiftyAndInvalidSortIsRejected() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
+                any(), any(Pageable.class))).thenReturn(page());
+
+        service.feed(7L, null, null, null, null, "newest", 0, 999);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(postRepository).findFeed(any(), any(), any(), any(), any(), any(),
+                any(), pageable.capture());
         assertThat(pageable.getValue().getPageSize()).isEqualTo(50);
 
         AppException ex = assertThrows(AppException.class,
-                () -> service.feed(7L, null, null, null, null, null, "bogus", 0, 12));
+                () -> service.feed(7L, null, null, null, null, "bogus", 0, 12));
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
@@ -265,7 +295,7 @@ class PostQueryServiceTest {
                 .thenReturn(Optional.of(user(7L, 10L, false, Instant.now())));
 
         assertThat(assertThrows(AppException.class,
-                () -> service.feed(7L, null, null, null, null, null, "newest", 0, 12))
+                () -> service.feed(7L, null, null, null, null, "newest", 0, 12))
                 .getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
@@ -294,7 +324,6 @@ class PostQueryServiceTest {
                 .title("Post " + id)
                 .description("Description for post " + id)
                 .price(new BigDecimal("100.00"))
-                .listingType(ListingType.SELL)
                 .condition(ItemCondition.GOOD)
                 .status(status)
                 .expiresAt(expiresAt)
@@ -332,10 +361,10 @@ class PostQueryServiceTest {
     void feedWithEmptyPageDoesNotQueryImages() {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
         when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
-                any(), any(), any(Pageable.class))).thenReturn(page());
+                any(), any(Pageable.class))).thenReturn(page());
 
         PageResponse<PostCardResponse> result =
-                service.feed(7L, null, null, null, null, null, "newest", 0, 12);
+                service.feed(7L, null, null, null, null, "newest", 0, 12);
 
         assertThat(result.content()).isEmpty();
         verify(postImageRepository, never()).findFirstImagesByPostIds(anyCollection());

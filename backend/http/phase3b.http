@@ -8,7 +8,11 @@ GET {{host}}/api/posts
 Authorization: Bearer {{token}}
 
 ### 2. Feed with every filter  -> 200
-GET {{host}}/api/posts?category=1&type=SELL&q=textbook&minPrice=100&maxPrice=1000&sort=priceAsc&page=0&size=5
+GET {{host}}/api/posts?category=1&q=textbook&minPrice=100&maxPrice=1000&sort=priceAsc&page=0&size=5
+Authorization: Bearer {{token}}
+
+### 2b. Free items only  -> 200, every price is 0
+GET {{host}}/api/posts?maxPrice=0
 Authorization: Bearer {{token}}
 
 ### 3. Wildcards in q are literal  -> 200, no 500 (escape check)
@@ -23,8 +27,8 @@ Authorization: Bearer {{token}}
 GET {{host}}/api/posts?sort=cheapest
 Authorization: Bearer {{token}}
 
-### 6. Invalid enum for type  -> 400
-GET {{host}}/api/posts?type=RENT
+### 6. Invalid sort value  -> 400
+GET {{host}}/api/posts?sort=cheapest
 Authorization: Bearer {{token}}
 
 ### 7. Feed without a token  -> 401

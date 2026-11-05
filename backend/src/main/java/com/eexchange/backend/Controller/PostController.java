@@ -10,7 +10,6 @@ import com.eexchange.backend.DTO.Response.PostCardResponse;
 import com.eexchange.backend.DTO.Response.PostDetailResponse;
 import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.DTO.UserPrincipal;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Service.PostQueryService;
@@ -113,7 +112,6 @@ public class PostController {
     public ResponseEntity<ApiResponse<PageResponse<PostCardResponse>>> feed(
             @CurrentUser UserPrincipal principal,
             @RequestParam(required = false) Long category,
-            @RequestParam(required = false) ListingType type,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) BigDecimal minPrice,
             @RequestParam(required = false) BigDecimal maxPrice,
@@ -122,7 +120,7 @@ public class PostController {
             @RequestParam(defaultValue = "12") int size) {
 
         PageResponse<PostCardResponse> response = postQueryService.feed(
-                requireUserId(principal), category, type, q,
+                requireUserId(principal), category, q,
                 minPrice, maxPrice, sort, page, size);
 
         return ResponseEntity.ok(ApiResponse.ok("Feed loaded", response));

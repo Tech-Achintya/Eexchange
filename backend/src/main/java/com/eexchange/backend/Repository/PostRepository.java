@@ -1,7 +1,6 @@
 package com.eexchange.backend.Repository;
 
 import com.eexchange.backend.Entity.Post;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,9 +26,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     // Filter by college, status, and category
     Page<Post> findByCollegeIdAndStatusAndCategoryId(Long collegeId, PostStatus status, Long categoryId, Pageable pageable);
 
-    // Filter by college, status, and listing type (SELL, EXCHANGE, FREE)
-    Page<Post> findByCollegeIdAndStatusAndListingType(Long collegeId, PostStatus status, ListingType listingType, Pageable pageable);
-
     // My listings
     Page<Post> findByUserId(Long userId, Pageable pageable);
 
@@ -52,7 +48,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
               and p.status = :status
               and (p.expiresAt is null or p.expiresAt > :now)
               and (:categoryId is null or p.category.id = :categoryId)
-              and (:listingType is null or p.listingType = :listingType)
               and (:q is null
                    or lower(p.title) like :q escape '!'
                    or lower(p.description) like :q escape '!')
@@ -65,7 +60,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
               and p.status = :status
               and (p.expiresAt is null or p.expiresAt > :now)
               and (:categoryId is null or p.category.id = :categoryId)
-              and (:listingType is null or p.listingType = :listingType)
               and (:q is null
                    or lower(p.title) like :q escape '!'
                    or lower(p.description) like :q escape '!')
@@ -76,7 +70,6 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                         @Param("status") PostStatus status,
                         @Param("now") Instant now,
                         @Param("categoryId") Long categoryId,
-                        @Param("listingType") ListingType listingType,
                         @Param("q") String q,
                         @Param("minPrice") java.math.BigDecimal minPrice,
                         @Param("maxPrice") java.math.BigDecimal maxPrice,

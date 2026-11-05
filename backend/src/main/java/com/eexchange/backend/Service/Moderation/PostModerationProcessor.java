@@ -94,6 +94,7 @@ public class PostModerationProcessor {
                             post.getId(),
                             post.getTitle(),
                             post.getDescription(),
+                            post.getPrice(),
                             imageUrls));
         });
     }

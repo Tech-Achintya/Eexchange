@@ -4,7 +4,6 @@ import com.eexchange.backend.Configuration.ModerationProperties;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
-import com.eexchange.backend.Entity.Enums.ListingType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.Post;
@@ -106,7 +105,7 @@ class PostModerationProcessorTest {
         assertThat(post.getAiReviewResult())
                 .containsEntry("verdict", "APPROVED")
                 .containsEntry("model", "test/model")
-                .containsEntry("promptVersion", "v1")
+                .containsEntry("promptVersion", "v2")
                 .containsEntry("attempts", 1)
                 .containsKey("reviewedAt");
         verify(postRepository).save(post);
@@ -298,7 +297,6 @@ class PostModerationProcessorTest {
                 .category(Category.builder().id(5L).name("Books").build())
                 .title("Cheap laptop")
                 .description("Works fine, barely used.")
-                .listingType(ListingType.SELL)
                 .price(new BigDecimal("100.00"))
                 .condition(ItemCondition.GOOD)
                 .status(PostStatus.PENDING_REVIEW)
