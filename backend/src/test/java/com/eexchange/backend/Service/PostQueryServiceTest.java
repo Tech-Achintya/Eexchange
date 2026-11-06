@@ -290,6 +290,51 @@ class PostQueryServiceTest {
     }
 
     @Test
+    void mineIncludesManualReviewPostsAndSupportsStatusFilter() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findMine(eq(7L), eq(PostStatus.DELETED),
+                eq(PostStatus.MANUAL_REVIEW), any(Pageable.class)))
+                .thenReturn(page(ownedPost(1L, 7L, 10L, PostStatus.MANUAL_REVIEW)));
+
+        PageResponse<PostDetailResponse> result =
+                service.mine(7L, PostStatus.MANUAL_REVIEW, 0, 12);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().get(0).status())
+                .isEqualTo(PostStatus.MANUAL_REVIEW);
+    }
+
+    @Test
+    void ownerCanOpenManualReviewDetailButOthersGet404() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findDetailById(1L))
+                .thenReturn(Optional.of(ownedPost(1L, 7L, 10L, PostStatus.MANUAL_REVIEW)));
+
+        assertThat(service.detail(7L, 1L).status())
+                .isEqualTo(PostStatus.MANUAL_REVIEW);
+
+        when(userRepository.findById(8L)).thenReturn(Optional.of(user(8L, 10L, false)));
+        assertThat(assertThrows(AppException.class,
+                () -> service.detail(8L, 1L)).getStatus())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void feedOnlyAsksForApprovedPostsNeverManualReview() {
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L, false)));
+        when(postRepository.findFeed(any(), any(), any(), any(), any(), any(),
+                any(), any(Pageable.class))).thenReturn(page());
+
+        service.feed(7L, null, null, null, null, "newest", 0, 12);
+
+        ArgumentCaptor<PostStatus> status = ArgumentCaptor.forClass(PostStatus.class);
+        verify(postRepository).findFeed(any(), status.capture(), any(), any(),
+                any(), any(), any(), any(Pageable.class));
+
+        assertThat(status.getValue()).isEqualTo(PostStatus.APPROVED);
+    }
+
+    @Test
     void deletedUserCannotBrowse() {
         when(userRepository.findById(7L))
                 .thenReturn(Optional.of(user(7L, 10L, false, Instant.now())));

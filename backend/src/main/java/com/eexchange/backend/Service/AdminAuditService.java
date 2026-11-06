@@ -1,18 +1,19 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Response.AuditLogResponse;
 import com.eexchange.backend.DTO.Response.PageResponse;
-import com.eexchange.backend.Entity.AdminAuditLog;
+import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
-import com.eexchange.backend.Repository.AdminAuditLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -22,11 +23,14 @@ public class AdminAuditService {
     private static final int DEFAULT_SIZE = 20;
     private static final int MAX_SIZE = 100;
 
-    private final AdminAuditLogRepository adminAuditLogRepository;
+    private final AuditEventRepository auditEventRepository;
 
-    @Transactional(readOnly = true)
     public PageResponse<AuditLogResponse> list(AuditTargetType targetType,
-                                               Long adminId,
+                                               Long targetId,
+                                               Long actorId,
+                                               AuditAction action,
+                                               Instant from,
+                                               Instant to,
                                                int page,
                                                int size) {
 
@@ -35,23 +39,28 @@ public class AdminAuditService {
                 size <= 0 ? DEFAULT_SIZE : Math.min(size, MAX_SIZE),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
 
-        Page<AdminAuditLog> logs = adminAuditLogRepository.search(
-                targetType, adminId, pageable);
+        Page<AuditEventDocument> logs = auditEventRepository.search(
+                targetType, targetId, actorId, action, from, to, pageable);
 
         List<AuditLogResponse> content = logs.getContent().stream()
-                .map(log -> new AuditLogResponse(
-                        log.getId(),
-                        log.getAdmin().getId(),
-                        log.getAdmin().getUsername(),
-                        log.getAction(),
-                        log.getTargetType(),
-                        log.getTargetId(),
-                        log.getReason(),
-                        log.getMetadata(),
-                        log.getCreatedAt()))
+                .map(AdminAuditService::toResponse)
                 .toList();
 
         return new PageResponse<>(content, logs.getNumber(), logs.getSize(),
                 logs.getTotalElements(), logs.getTotalPages());
+    }
+
+    static AuditLogResponse toResponse(AuditEventDocument event) {
+        return new AuditLogResponse(
+                event.getId(),
+                event.getActorType(),
+                event.getActorId(),
+                event.getActorName(),
+                event.getAction(),
+                event.getTargetType(),
+                event.getTargetId(),
+                event.getReason(),
+                event.getMetadata(),
+                event.getCreatedAt());
     }
 }

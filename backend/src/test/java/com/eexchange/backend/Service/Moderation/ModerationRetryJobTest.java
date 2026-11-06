@@ -37,30 +37,52 @@ class ModerationRetryJobTest {
         budget = mock(ModerationBudget.class);
 
         properties = new ModerationProperties();
-        properties.setMaxAttempts(5);
+        properties.setMaxAttempts(3);
         properties.setJobBatchSize(5);
-        properties.setBackoffMinutes(2);
+        properties.setBackoffMinutes(List.of(5, 15, 60));
 
         job = new ModerationRetryJob(postRepository, processor, budget, properties);
     }
 
     @Test
-    void respectsTheExponentialBackoff() {
+    void respectsTheEscalatingBackoffPerAttempt() {
         when(budget.isExhausted()).thenReturn(false);
         when(postRepository.findPendingForModeration(
-                eq(PostStatus.PENDING_REVIEW), eq(5), any(), any(Pageable.class)))
+                eq(PostStatus.PENDING_REVIEW), eq(3), any(), any(Pageable.class)))
                 .thenReturn(List.of(
                         pendingPost(1L, 1, Instant.now().minus(1, ChronoUnit.MINUTES)),
-                        pendingPost(2L, 1, Instant.now().minus(5, ChronoUnit.MINUTES)),
-                        pendingPost(3L, 0, Instant.now().minus(1, ChronoUnit.SECONDS))));
+                        pendingPost(2L, 1, Instant.now().minus(6, ChronoUnit.MINUTES)),
+                        pendingPost(3L, 2, Instant.now().minus(14, ChronoUnit.MINUTES)),
+                        pendingPost(4L, 2, Instant.now().minus(16, ChronoUnit.MINUTES)),
+                        pendingPost(5L, 0, Instant.now().minus(1, ChronoUnit.SECONDS)),
+                        pendingPost(6L, 4, Instant.now().minus(59, ChronoUnit.MINUTES)),
+                        pendingPost(7L, 4, Instant.now().minus(61, ChronoUnit.MINUTES))));
 
         job.run();
 
-        // attempts=1 -> 2 min backoff: only post 2 is due.
-        // attempts=0 -> 0 backoff: post 3 is due immediately.
+        // 5 min for attempt 1, 15 for attempt 2, 60 (clamped) for later attempts.
         verify(processor).process(2L);
-        verify(processor).process(3L);
+        verify(processor).process(4L);
+        verify(processor).process(5L);
+        verify(processor).process(7L);
         verify(processor, never()).process(1L);
+        verify(processor, never()).process(3L);
+        verify(processor, never()).process(6L);
+    }
+
+    @Test
+    void ignoresManualReviewPostsEvenIfRepositoryReturnsOne() {
+        when(budget.isExhausted()).thenReturn(false);
+        Post manual = pendingPost(9L, 0, Instant.now().minus(1, ChronoUnit.HOURS));
+        manual.setStatus(PostStatus.MANUAL_REVIEW);
+
+        when(postRepository.findPendingForModeration(
+                any(), any(Integer.class), any(), any(Pageable.class)))
+                .thenReturn(List.of(manual));
+
+        job.run();
+
+        verify(processor, never()).process(9L);
     }
 
     @Test
@@ -74,7 +96,7 @@ class ModerationRetryJobTest {
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(postRepository).findPendingForModeration(
-                eq(PostStatus.PENDING_REVIEW), eq(5), any(), pageable.capture());
+                eq(PostStatus.PENDING_REVIEW), eq(3), any(), pageable.capture());
 
         org.assertj.core.api.Assertions
                 .assertThat(pageable.getValue().getPageSize()).isEqualTo(5);

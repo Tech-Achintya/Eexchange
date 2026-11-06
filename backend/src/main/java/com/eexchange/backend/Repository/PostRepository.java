@@ -120,6 +120,66 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                                         @Param("now") Instant now,
                                         Pageable pageable);
 
+    // Admin manual-review queue: oldest first (queuedAt is updatedAt).
+    @EntityGraph(attributePaths = {"user", "college"})
+    @Query("""
+            select p from Post p
+            where p.status = :status
+            order by p.updatedAt asc, p.id asc
+            """)
+    Page<Post> findManualReviewQueue(@Param("status") PostStatus status,
+                                     Pageable pageable);
+
+    // One conditional update per admin action: 0 rows means the post moved on.
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :status,
+                   p.rejectionReason = null,
+                   p.hiddenReason = :hiddenReason,
+                   p.updatedAt = :now
+             where p.id = :postId
+               and p.status = :expectedStatus
+            """)
+    int approveFromManualReview(@Param("postId") Long postId,
+                                @Param("status") PostStatus status,
+                                @Param("hiddenReason") String hiddenReason,
+                                @Param("expectedStatus") PostStatus expectedStatus,
+                                @Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :status,
+                   p.rejectionReason = :reason,
+                   p.hiddenReason = null,
+                   p.updatedAt = :now
+             where p.id = :postId
+               and p.status = :expectedStatus
+            """)
+    int rejectFromManualReview(@Param("postId") Long postId,
+                               @Param("status") PostStatus status,
+                               @Param("reason") String reason,
+                               @Param("expectedStatus") PostStatus expectedStatus,
+                               @Param("now") Instant now);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Post p
+               set p.status = :status,
+                   p.moderationAttempts = 0,
+                   p.rejectionReason = null,
+                   p.hiddenReason = null,
+                   p.aiReviewResult = null,
+                   p.updatedAt = :now
+             where p.id = :postId
+               and p.status = :expectedStatus
+            """)
+    int requeueFromManualReview(@Param("postId") Long postId,
+                                @Param("status") PostStatus status,
+                                @Param("expectedStatus") PostStatus expectedStatus,
+                                @Param("now") Instant now);
+
     // Atomic auto-hide: only the first report that crosses the threshold wins.
     // Concurrent reports cannot double-apply because the status predicate fails.
     @Modifying(clearAutomatically = true, flushAutomatically = true)

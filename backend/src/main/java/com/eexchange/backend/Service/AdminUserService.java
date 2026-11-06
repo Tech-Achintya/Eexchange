@@ -1,12 +1,13 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Request.AdminUserBlockRequest;
 import com.eexchange.backend.DTO.Request.AdminUserUnblockRequest;
 import com.eexchange.backend.DTO.Response.AdminUserDetailResponse;
 import com.eexchange.backend.DTO.Response.AdminUserRowResponse;
 import com.eexchange.backend.DTO.Response.AuditLogResponse;
 import com.eexchange.backend.DTO.Response.PageResponse;
-import com.eexchange.backend.Entity.AdminAuditLog;
 import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
@@ -15,7 +16,6 @@ import com.eexchange.backend.Entity.Enums.ReportStatus;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
-import com.eexchange.backend.Repository.AdminAuditLogRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
@@ -57,7 +57,7 @@ public class AdminUserService {
     private final PostRepository postRepository;
     private final PostImageRepository postImageRepository;
     private final ReportRepository reportRepository;
-    private final AdminAuditLogRepository adminAuditLogRepository;
+    private final AuditEventRepository auditEventRepository;
     private final AuditService auditService;
     private final PostMediaCleanup mediaCleanup;
     private final UserStatusCache userStatusCache;
@@ -129,9 +129,8 @@ public class AdminUserService {
         long openReports = reportRepository.countByPostOwnerIdAndStatus(
                 userId, ReportStatus.OPEN);
 
-        List<AuditLogResponse> recentAudit = adminAuditLogRepository
-                .findTop10ByTargetTypeAndTargetIdOrderByCreatedAtDescIdDesc(
-                        AuditTargetType.USER, userId)
+        List<AuditLogResponse> recentAudit = auditEventRepository
+                .findRecentByTarget(AuditTargetType.USER, userId, 10)
                 .stream()
                 .map(this::toAudit)
                 .toList();
@@ -287,6 +286,10 @@ public class AdminUserService {
         int postsRestored = postRepository.restoreUserBlockedByUserId(
                 userId, PostStatus.APPROVED, PostStatus.HIDDEN, USER_BLOCKED_REASON);
 
+        // The block was actually lifted by the system, not by an admin.
+        auditService.logSystem(AuditAction.AUTO_UNBLOCK, AuditTargetType.USER, userId,
+                "Temporary block expired", Map.of("postsRestored", postsRestored));
+
         User user = userRepository.findById(userId).orElse(null);
         if (user != null) {
             afterCommit(() -> {
@@ -392,11 +395,12 @@ public class AdminUserService {
                 user.getCollege().getId(), user.getCollege().getName());
     }
 
-    private AuditLogResponse toAudit(AdminAuditLog audit) {
+    private AuditLogResponse toAudit(AuditEventDocument audit) {
         return new AuditLogResponse(
                 audit.getId(),
-                audit.getAdmin().getId(),
-                audit.getAdmin().getUsername(),
+                audit.getActorType(),
+                audit.getActorId(),
+                audit.getActorName(),
                 audit.getAction(),
                 audit.getTargetType(),
                 audit.getTargetId(),

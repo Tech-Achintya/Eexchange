@@ -117,6 +117,21 @@ class PostManagementServiceTest {
     }
 
     @Test
+    void updateFromManualReviewResetsToPendingWithZeroAttemptsAndPublishesEvent() {
+        Post post = post(1L, 7L, PostStatus.MANUAL_REVIEW);
+        post.setModerationAttempts(3);
+        post.setAiReviewResult(java.util.Map.of("verdict", "MANUAL_REVIEW"));
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        PostResponse response = service.updatePost(7L, 1L, updateRequest(), List.of());
+
+        assertThat(response.status()).isEqualTo(PostStatus.PENDING_REVIEW);
+        assertThat(post.getModerationAttempts()).isZero();
+        assertThat(post.getRejectionReason()).isNull();
+        verify(eventPublisher).publishEvent(new PostCreatedEvent(1L));
+    }
+
+    @Test
     void updateRejectsForeignImageId() {
         when(postRepository.findDetailById(1L))
                 .thenReturn(Optional.of(post(1L, 7L, PostStatus.APPROVED)));
@@ -255,6 +270,18 @@ class PostManagementServiceTest {
     }
 
     @Test
+    void markSoldFromManualReviewReturns400() {
+        Post manual = post(1L, 7L, PostStatus.MANUAL_REVIEW);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(manual));
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.markSold(7L, 1L));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(manual.getStatus()).isEqualTo(PostStatus.MANUAL_REVIEW);
+    }
+
+    @Test
     void markSoldByNonOwnerReturns404() {
         when(postRepository.findDetailById(1L))
                 .thenReturn(Optional.of(post(1L, 99L, PostStatus.APPROVED)));
@@ -277,6 +304,27 @@ class PostManagementServiceTest {
 
             assertThat(post.getStatus()).isEqualTo(PostStatus.DELETED);
             verify(storageService, never()).delete(any());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(storageService).delete("posts/7/a.jpg");
+            verify(storageService).delete("posts/7/b.jpg");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void deleteFromManualReviewSoftDeletesAndRemovesFilesAfterCommit() {
+        Post post = post(1L, 7L, PostStatus.MANUAL_REVIEW);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.deletePost(7L, 1L);
+
+            assertThat(post.getStatus()).isEqualTo(PostStatus.DELETED);
 
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(TransactionSynchronization::afterCommit);

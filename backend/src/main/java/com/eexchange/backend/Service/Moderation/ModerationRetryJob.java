@@ -45,13 +45,18 @@ public class ModerationRetryJob {
                 return;
             }
 
+            // Manual review is a human queue, never an AI retry candidate.
+            if (post.getStatus() != PostStatus.PENDING_REVIEW) {
+                continue;
+            }
+
             int attempts = post.getModerationAttempts() == null
                     ? 0
                     : post.getModerationAttempts();
 
-            // Backoff grows with each failed attempt: attempts * backoffMinutes.
+            // N failed attempts wait backoff[N-1]; the last value is reused.
             Instant dueAt = post.getUpdatedAt()
-                    .plus(Duration.ofMinutes((long) attempts * properties.getBackoffMinutes()));
+                    .plus(Duration.ofMinutes(backoffMinutes(attempts)));
 
             if (dueAt.isAfter(now)) {
                 continue;
@@ -59,5 +64,17 @@ public class ModerationRetryJob {
 
             processor.process(post.getId());
         }
+    }
+
+    private long backoffMinutes(int attempts) {
+        List<Integer> backoff = properties.getBackoffMinutes();
+
+        if (attempts <= 0 || backoff == null || backoff.isEmpty()) {
+            return 0L;
+        }
+
+        int index = Math.min(attempts - 1, backoff.size() - 1);
+        Integer minutes = backoff.get(index);
+        return minutes == null || minutes < 0 ? 0L : minutes;
     }
 }

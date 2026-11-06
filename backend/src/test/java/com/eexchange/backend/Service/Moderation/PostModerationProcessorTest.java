@@ -3,6 +3,8 @@ package com.eexchange.backend.Service.Moderation;
 import com.eexchange.backend.Configuration.ModerationProperties;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
+import com.eexchange.backend.Entity.Enums.AuditAction;
+import com.eexchange.backend.Entity.Enums.AuditTargetType;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Enums.UserStatus;
@@ -10,27 +12,34 @@ import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Repository.PostRepository;
+import com.eexchange.backend.Service.AuditService;
+import com.eexchange.backend.Service.EmailService;
 import com.eexchange.backend.Service.ModerationService;
 import com.eexchange.backend.Service.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -47,6 +56,8 @@ class PostModerationProcessorTest {
     private StringRedisTemplate redisTemplate;
     private ValueOperations<String, String> valueOperations;
     private PlatformTransactionManager transactionManager;
+    private AuditService auditService;
+    private EmailService emailService;
     private AtomicInteger openTransactions;
     private PostModerationProcessor processor;
 
@@ -58,7 +69,9 @@ class PostModerationProcessorTest {
         moderationService = mock(ModerationService.class);
         properties = new ModerationProperties();
         properties.setModel("test/model");
-        properties.setMaxAttempts(5);
+        properties.setMaxAttempts(3);
+        auditService = mock(AuditService.class);
+        emailService = mock(EmailService.class);
         redisTemplate = mock(StringRedisTemplate.class);
         valueOperations = mock(ValueOperations.class);
 
@@ -87,7 +100,7 @@ class PostModerationProcessorTest {
         processor = new PostModerationProcessor(
                 postRepository, storageService, moderationService,
                 new RejectionMessages(), properties, redisTemplate,
-                transactionManager);
+                transactionManager, auditService, emailService);
     }
 
     @Test
@@ -128,18 +141,117 @@ class PostModerationProcessorTest {
     }
 
     @Test
-    void retryLaterKeepsPendingAndIncrementsAttempts() {
+    void retryLaterBeforeMaxAttemptsStaysPendingAndIncrementsAttempts() {
         Post post = pendingPost();
-        post.setModerationAttempts(2);
+        post.setModerationAttempts(1);
         givenPost(post);
         when(moderationService.review(any()))
-                .thenReturn(ModerationService.ModerationResult.retryLater());
+                .thenReturn(ModerationService.ModerationResult.retryLater(
+                        ModerationService.FailureCategory.HTTP_ERROR));
 
         processor.process(1L);
 
         assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
-        assertThat(post.getModerationAttempts()).isEqualTo(3);
+        assertThat(post.getModerationAttempts()).isEqualTo(2);
         assertThat(post.getAiReviewResult()).containsEntry("verdict", "RETRY_LATER");
+        verify(auditService, never()).logSystem(any(), any(), any(), any(), any());
+        verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
+    }
+
+    @Test
+    void thirdFailureMovesPostToManualReviewWithFailureCategoryOnly() {
+        Post post = pendingPost();
+        post.setModerationAttempts(2);
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.retryLater(
+                        ModerationService.FailureCategory.TIMEOUT));
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.MANUAL_REVIEW);
+        assertThat(post.getModerationAttempts()).isEqualTo(3);
+        assertThat(post.getAiReviewResult())
+                .containsEntry("model", "test/model")
+                .containsEntry("promptVersion", "v2")
+                .containsEntry("verdict", "MANUAL_REVIEW")
+                .containsEntry("lastFailure", "TIMEOUT")
+                .containsEntry("attempts", 3)
+                .containsKey("queuedAt")
+                .doesNotContainKey("code");
+
+        verify(auditService).logSystem(
+                eq(AuditAction.MANUAL_REVIEW_QUEUED),
+                eq(AuditTargetType.POST),
+                eq(1L),
+                eq("AI review failed after 3 attempts"),
+                eq(Map.of("lastFailure", "TIMEOUT", "attempts", 3)));
+    }
+
+    @Test
+    void manualReviewEmailIsSentOnlyAfterCommit() {
+        Post post = pendingPost();
+        post.setModerationAttempts(2);
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.retryLater(
+                        ModerationService.FailureCategory.MALFORMED_ANSWER));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            processor.process(1L);
+
+            assertThat(post.getStatus()).isEqualTo(PostStatus.MANUAL_REVIEW);
+            verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+
+            verify(emailService).sendManualReviewQueuedEmail("owner@college.edu", "Cheap laptop");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void manualReviewEmailIsNotSentOnRollback() {
+        Post post = pendingPost();
+        post.setModerationAttempts(2);
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.retryLater(
+                        ModerationService.FailureCategory.HTTP_ERROR));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            processor.process(1L);
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(s -> s.afterCompletion(
+                            TransactionSynchronization.STATUS_ROLLED_BACK));
+
+            verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void deferredBudgetExhaustionChangesNothingAndCountsNoAttempt() {
+        Post post = pendingPost();
+        post.setModerationAttempts(1);
+        givenPost(post);
+        when(moderationService.review(any()))
+                .thenReturn(ModerationService.ModerationResult.deferred());
+
+        processor.process(1L);
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
+        assertThat(post.getModerationAttempts()).isEqualTo(1);
+        assertThat(post.getAiReviewResult()).isNull();
+        verify(postRepository, never()).save(any());
+        verify(auditService, never()).logSystem(any(), any(), any(), any(), any());
+        verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
     }
 
     @Test
@@ -177,17 +289,15 @@ class PostModerationProcessorTest {
     }
 
     @Test
-    void maxAttemptsIsWarnedOnlyWhenExceeded() {
+    void manualReviewPostIsIgnoredByTheProcessor() {
         Post post = pendingPost();
-        post.setModerationAttempts(4);
+        post.setStatus(PostStatus.MANUAL_REVIEW);
         givenPost(post);
-        when(moderationService.review(any()))
-                .thenReturn(ModerationService.ModerationResult.retryLater());
 
         processor.process(1L);
 
-        assertThat(post.getModerationAttempts()).isEqualTo(5);
-        assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
+        verifyNoInteractions(moderationService);
+        verify(postRepository, never()).save(any());
     }
 
     @Test
@@ -292,7 +402,8 @@ class PostModerationProcessorTest {
     private Post pendingPost() {
         Post post = Post.builder()
                 .id(1L)
-                .user(User.builder().id(7L).name("Owner").build())
+                .user(User.builder().id(7L).name("Owner")
+                        .email("owner@college.edu").build())
                 .college(College.builder().id(10L).name("College A").build())
                 .category(Category.builder().id(5L).name("Books").build())
                 .title("Cheap laptop")

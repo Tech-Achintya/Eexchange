@@ -175,11 +175,17 @@ Content-Type: application/json
 ### ---------- audit log ----------
 
 ### 20. Super admin -> 200, newest first
+### Response items: id (String), actorType (ADMIN|SYSTEM), actorId, actorName,
+### action, targetType, targetId, reason, metadata, createdAt.
 GET {{host}}/api/admin/audit-log?page=0&size=20
 Authorization: Bearer {{superAdmin}}
 
-### 21. Filter by target -> 200
-GET {{host}}/api/admin/audit-log?targetType=POST&adminId=1
+### 21. Filter by target and actor -> 200
+GET {{host}}/api/admin/audit-log?targetType=POST&targetId={{postId}}&actorId=1
+Authorization: Bearer {{superAdmin}}
+
+### 21b. Filter by action and time window (ISO instants) -> 200
+GET {{host}}/api/admin/audit-log?action=DELETE_POST&from=2026-01-01T00:00:00Z&to=2026-12-31T23:59:59Z
 Authorization: Bearer {{superAdmin}}
 
 ### 22. Moderator -> 403

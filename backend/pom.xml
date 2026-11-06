@@ -62,11 +62,19 @@
 		     • Hibernate ORM (the JPA implementation)
 		     • Spring Data JPA (repositories, @Transactional)
 		     • HikariCP connection pool (the fastest Java pool)
-		  We removed spring-boot-starter-data-mongodb entirely.
 		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!--
+		  MongoDB stores the audit log. Audit events are append-only and
+		  best-effort, so they do not belong in the relational schema.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-mongodb</artifactId>
 		</dependency>
 
 		<!-- PostgreSQL JDBC driver (runtime only — not needed at compile time) -->

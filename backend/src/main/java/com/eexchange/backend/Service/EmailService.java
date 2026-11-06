@@ -1,5 +1,6 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Utils.HtmlEscaper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.beans.factory.annotation.Value;
@@ -221,5 +222,70 @@ public class EmailService {
                 + "</div>";
 
         sendEmail(toEmail, "New interest in your " + appName + " post", html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendManualReviewQueuedEmail(String toEmail, String postTitle) {
+        if (isDevProfile()) {
+            log.info("[dev] Manual review queued email for {} about '{}'", toEmail, postTitle);
+        }
+
+        String escapedTitle = HtmlEscaper.escape(postTitle);
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #4F46E5;'>" + appName + " listing under manual review</h2>"
+                + "<p>Your listing <strong>" + escapedTitle + "</strong> is under manual review.</p>"
+                + "<p>Our moderation team will review it and we will notify you with the result.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, "Your " + appName + " listing is under manual review", html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendManualReviewApprovedEmail(String toEmail,
+                                              String escapedPostTitle,
+                                              String escapedNote,
+                                              boolean live) {
+        if (isDevProfile()) {
+            log.info("[dev] Manual review approved email for {} about '{}' (live: {})",
+                    toEmail, escapedPostTitle, live);
+        }
+
+        String outcome = live
+                ? "<p>Your listing is approved and is now live in the marketplace.</p>"
+                : "<p>Your listing has been approved. It will become visible once your "
+                        + "account is active again.</p>";
+
+        String note = escapedNote == null || escapedNote.isBlank()
+                ? ""
+                : "<p><strong>Moderator note:</strong><br/>" + escapedNote + "</p>";
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #15803d;'>" + appName + " listing approved</h2>"
+                + "<p><strong>" + escapedPostTitle + "</strong></p>"
+                + outcome
+                + note
+                + "</div>";
+
+        sendEmail(toEmail, "Your " + appName + " listing was approved", html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendManualReviewRejectedEmail(String toEmail,
+                                              String escapedPostTitle,
+                                              String escapedReason) {
+        if (isDevProfile()) {
+            log.info("[dev] Manual review rejected email for {} about '{}'",
+                    toEmail, escapedPostTitle);
+        }
+
+        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
+                + "<h2 style='color: #b91c1c;'>" + appName + " listing rejected</h2>"
+                + "<p>Your listing <strong>" + escapedPostTitle + "</strong> was rejected.</p>"
+                + "<p><strong>Reason:</strong><br/>" + escapedReason + "</p>"
+                + "<p style='color: #6b7280;'>You can edit the listing and submit it again.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, "Your " + appName + " listing was rejected", html);
     }
 }

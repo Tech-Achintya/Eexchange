@@ -1,12 +1,13 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Audit.AuditActorType;
+import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Request.AdminUserBlockRequest;
 import com.eexchange.backend.DTO.Request.AdminUserUnblockRequest;
 import com.eexchange.backend.DTO.Response.AdminUserDetailResponse;
 import com.eexchange.backend.DTO.Response.AdminUserRowResponse;
 import com.eexchange.backend.DTO.Response.PageResponse;
-import com.eexchange.backend.Entity.Admin;
-import com.eexchange.backend.Entity.AdminAuditLog;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Entity.Enums.AuditAction;
@@ -16,7 +17,6 @@ import com.eexchange.backend.Entity.Enums.ReportStatus;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
-import com.eexchange.backend.Repository.AdminAuditLogRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
@@ -57,7 +57,7 @@ class AdminUserServiceTest {
     private PostRepository postRepository;
     private PostImageRepository postImageRepository;
     private ReportRepository reportRepository;
-    private AdminAuditLogRepository adminAuditLogRepository;
+    private AuditEventRepository auditEventRepository;
     private AuditService auditService;
     private StorageService storageService;
     private UserStatusCache userStatusCache;
@@ -70,7 +70,7 @@ class AdminUserServiceTest {
         postRepository = mock(PostRepository.class);
         postImageRepository = mock(PostImageRepository.class);
         reportRepository = mock(ReportRepository.class);
-        adminAuditLogRepository = mock(AdminAuditLogRepository.class);
+        auditEventRepository = mock(AuditEventRepository.class);
         auditService = mock(AuditService.class);
         storageService = mock(StorageService.class);
         userStatusCache = mock(UserStatusCache.class);
@@ -81,7 +81,7 @@ class AdminUserServiceTest {
                 postRepository,
                 postImageRepository,
                 reportRepository,
-                adminAuditLogRepository,
+                auditEventRepository,
                 auditService,
                 new PostMediaCleanup(storageService),
                 userStatusCache,
@@ -398,6 +398,28 @@ class AdminUserServiceTest {
         verify(userStatusCache, never()).put(anyLong(), any());
     }
 
+    @Test
+    void unblockExpiredWritesSystemAudit() {
+        when(userRepository.unblockIfExpired(
+                eq(20L), eq(UserStatus.ACTIVE), eq(UserStatus.TEMP_BLOCKED), any(Instant.class)))
+                .thenReturn(1);
+        when(postRepository.restoreUserBlockedByUserId(
+                20L, PostStatus.APPROVED, PostStatus.HIDDEN, "USER_BLOCKED"))
+                .thenReturn(2);
+        when(userRepository.findById(20L))
+                .thenReturn(Optional.of(user(UserStatus.ACTIVE)));
+
+        boolean changed = service.unblockExpired(20L, Instant.now());
+
+        assertThat(changed).isTrue();
+        verify(auditService).logSystem(
+                eq(AuditAction.AUTO_UNBLOCK),
+                eq(AuditTargetType.USER),
+                eq(20L),
+                eq("Temporary block expired"),
+                eq(Map.of("postsRestored", 2)));
+    }
+
     // ------------------------------------------------------------- list/detail
 
     @Test
@@ -444,18 +466,19 @@ class AdminUserServiceTest {
         when(reportRepository.countByPostOwnerIdAndStatus(20L, ReportStatus.OPEN))
                 .thenReturn(2L);
 
-        AdminAuditLog audit = AdminAuditLog.builder()
-                .id(99L)
-                .admin(Admin.builder().id(1L).username("root").build())
+        AuditEventDocument audit = AuditEventDocument.builder()
+                .id("99")
+                .actorType(AuditActorType.ADMIN)
+                .actorId(1L)
+                .actorName("root")
                 .action(AuditAction.BLOCK_TEMP)
                 .targetType(AuditTargetType.USER)
                 .targetId(20L)
                 .reason("Spam")
                 .createdAt(Instant.now())
                 .build();
-        when(adminAuditLogRepository
-                .findTop10ByTargetTypeAndTargetIdOrderByCreatedAtDescIdDesc(
-                        AuditTargetType.USER, 20L))
+        when(auditEventRepository.findRecentByTarget(
+                AuditTargetType.USER, 20L, 10))
                 .thenReturn(List.of(audit));
 
         AdminUserDetailResponse detail = service.detail(20L);
@@ -466,7 +489,7 @@ class AdminUserServiceTest {
                 .containsEntry(PostStatus.DELETED, 0L);
         assertThat(detail.openReportCount()).isEqualTo(2);
         assertThat(detail.recentAudit()).hasSize(1);
-        assertThat(detail.recentAudit().get(0).adminUsername()).isEqualTo("root");
+        assertThat(detail.recentAudit().get(0).actorName()).isEqualTo("root");
     }
 
     // ---------------------------------------------------------------- fixtures

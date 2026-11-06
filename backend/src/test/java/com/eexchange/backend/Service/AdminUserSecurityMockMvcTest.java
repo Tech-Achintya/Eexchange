@@ -2,6 +2,7 @@ package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Configuration.AdminArgumentResolver;
 import com.eexchange.backend.Controller.AdminUserController;
+import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.College;
@@ -9,7 +10,6 @@ import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;
-import com.eexchange.backend.Repository.AdminAuditLogRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
@@ -50,7 +50,7 @@ class AdminUserSecurityMockMvcTest {
                 mock(PostRepository.class),
                 mock(PostImageRepository.class),
                 mock(ReportRepository.class),
-                mock(AdminAuditLogRepository.class),
+                mock(AuditEventRepository.class),
                 mock(AuditService.class),
                 new PostMediaCleanup(mock(StorageService.class)),
                 mock(UserStatusCache.class),

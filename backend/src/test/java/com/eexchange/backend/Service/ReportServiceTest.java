@@ -101,6 +101,12 @@ class ReportServiceTest {
         assertThat(assertThrows(AppException.class,
                 () -> service.reportPost(7L, 2L, request("x"))).getStatus())
                 .isEqualTo(HttpStatus.NOT_FOUND);
+
+        when(postRepository.findDetailById(3L))
+                .thenReturn(Optional.of(post(3L, 99L, 10L, PostStatus.MANUAL_REVIEW)));
+        assertThat(assertThrows(AppException.class,
+                () -> service.reportPost(7L, 3L, request("x"))).getStatus())
+                .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

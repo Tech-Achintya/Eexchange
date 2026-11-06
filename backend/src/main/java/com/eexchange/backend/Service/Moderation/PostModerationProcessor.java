@@ -1,12 +1,14 @@
 package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
+import com.eexchange.backend.Entity.Enums.AuditAction;
+import com.eexchange.backend.Entity.Enums.AuditTargetType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
-import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
-import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Repository.PostRepository;
+import com.eexchange.backend.Service.AuditService;
+import com.eexchange.backend.Service.EmailService;
 import com.eexchange.backend.Service.ModerationService;
 import com.eexchange.backend.Service.StorageService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
@@ -39,6 +43,8 @@ public class PostModerationProcessor {
     private final ModerationProperties properties;
     private final StringRedisTemplate redisTemplate;
     private final PlatformTransactionManager transactionManager;
+    private final AuditService auditService;
+    private final EmailService emailService;
 
     // No @Transactional here: the AI call must never hold a DB transaction.
     public void process(Long postId) {
@@ -128,15 +134,21 @@ public class PostModerationProcessor {
                 return;
             }
 
+            // Budget exhaustion is not a failed attempt: change nothing at all.
+            if (result.outcome() == ModerationService.Outcome.DEFERRED) {
+                log.info("Moderation deferred for post {}: daily budget exhausted", post.getId());
+                return;
+            }
+
             int attempts = (post.getModerationAttempts() == null
                     ? 0
                     : post.getModerationAttempts()) + 1;
 
             switch (result.outcome()) {
                 case APPROVED -> {
-                    if (isEffectivelyBlocked(post.getUser())) {
+                    if (BlockedUserPolicy.isEffectivelyBlocked(post.getUser())) {
                         post.setStatus(PostStatus.HIDDEN);
-                        post.setHiddenReason("USER_BLOCKED");
+                        post.setHiddenReason(BlockedUserPolicy.USER_BLOCKED_REASON);
                     } else {
                         post.setStatus(PostStatus.APPROVED);
                         post.setHiddenReason(null);
@@ -148,23 +160,57 @@ public class PostModerationProcessor {
                     post.setRejectionReason(rejectionMessages.forCode(result.code()));
                 }
                 case RETRY_LATER -> {
-                    // Deliberately stays PENDING_REVIEW.
                     if (attempts >= properties.getMaxAttempts()) {
-                        log.warn("Post {} reached max moderation attempts ({}); "
-                                        + "left PENDING_REVIEW",
-                                post.getId(), attempts);
+                        moveToManualReview(post, result, attempts);
                     }
+                    // Otherwise deliberately stays PENDING_REVIEW.
+                }
+                case DEFERRED -> {
+                    // Handled above; unreachable here.
                 }
             }
 
-            post.setModerationAttempts(attempts);
-            post.setAiReviewResult(aiReviewResult(result, attempts));
+            if (post.getStatus() == PostStatus.MANUAL_REVIEW) {
+                post.setModerationAttempts(attempts);
+                post.setAiReviewResult(manualReviewResult(result, attempts));
+            } else {
+                post.setModerationAttempts(attempts);
+                post.setAiReviewResult(aiReviewResult(result, attempts));
+            }
 
             postRepository.save(post);
 
             log.info("Moderation post {} -> {} (attempt {})",
                     post.getId(), result.outcome(), attempts);
         });
+    }
+
+    private void moveToManualReview(Post post,
+                                    ModerationService.ModerationResult result,
+                                    int attempts) {
+
+        post.setStatus(PostStatus.MANUAL_REVIEW);
+
+        String lastFailure = result.failure() == null
+                ? ModerationService.FailureCategory.HTTP_ERROR.name()
+                : result.failure().name();
+
+        log.warn("Post {} reached max moderation attempts ({}) after {}; manual review",
+                post.getId(), attempts, lastFailure);
+
+        auditService.logSystem(
+                AuditAction.MANUAL_REVIEW_QUEUED,
+                AuditTargetType.POST,
+                post.getId(),
+                "AI review failed after " + attempts + " attempts",
+                Map.of("lastFailure", lastFailure, "attempts", attempts));
+
+        String email = post.getUser() == null ? null : post.getUser().getEmail();
+        String title = post.getTitle();
+
+        if (email != null && !email.isBlank()) {
+            afterCommit(() -> emailService.sendManualReviewQueuedEmail(email, title));
+        }
     }
 
     private List<String> orderedImageKeys(Post post) {
@@ -203,19 +249,34 @@ public class PostModerationProcessor {
         return map;
     }
 
-    // An expired TEMP block counts as active, matching JWTfilter and login.
-    private boolean isEffectivelyBlocked(User user) {
-        if (user == null) {
-            return false;
+    // Manual-review schema: a failure CATEGORY only, never model text.
+    private Map<String, Object> manualReviewResult(
+            ModerationService.ModerationResult result, int attempts) {
+
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("model", properties.getModel());
+        map.put("promptVersion", OpenRouterModerationService.PROMPT_VERSION);
+        map.put("verdict", PostStatus.MANUAL_REVIEW.name());
+        map.put("lastFailure", result.failure() == null
+                ? ModerationService.FailureCategory.HTTP_ERROR.name()
+                : result.failure().name());
+        map.put("attempts", attempts);
+        map.put("queuedAt", Instant.now().toString());
+        return map;
+    }
+
+    private void afterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
         }
-        if (user.getStatus() == UserStatus.PERM_BLOCKED) {
-            return true;
-        }
-        if (user.getStatus() == UserStatus.TEMP_BLOCKED) {
-            return user.getBlockedUntil() != null
-                    && user.getBlockedUntil().isAfter(Instant.now());
-        }
-        return false;
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        action.run();
+                    }
+                });
     }
 
     private record PostSnapshot(

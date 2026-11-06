@@ -111,6 +111,8 @@ class OpenRouterModerationServiceTest {
         ModerationService.ModerationResult result = service.review(context());
 
         assertThat(result.outcome()).isEqualTo(ModerationService.Outcome.RETRY_LATER);
+        assertThat(result.failure())
+                .isEqualTo(ModerationService.FailureCategory.MALFORMED_ANSWER);
         verify(restTemplate, times(2))
                 .postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }
@@ -132,19 +134,26 @@ class OpenRouterModerationServiceTest {
         when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
                 .thenThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR));
 
-        assertThat(service.review(context()).outcome())
-                .isEqualTo(ModerationService.Outcome.RETRY_LATER);
+        ModerationService.ModerationResult result = service.review(context());
+
+        assertThat(result.outcome()).isEqualTo(ModerationService.Outcome.RETRY_LATER);
+        assertThat(result.failure())
+                .isEqualTo(ModerationService.FailureCategory.HTTP_ERROR);
         verify(restTemplate, times(1))
                 .postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }
 
     @Test
-    void timeoutIsRetryLaterWithNoInCallRetry() {
+    void timeoutIsRetryLaterWithTimeoutCategory() {
         when(restTemplate.postForEntity(anyString(), any(HttpEntity.class), eq(String.class)))
-                .thenThrow(new ResourceAccessException("Read timed out"));
+                .thenThrow(new ResourceAccessException("Read timed out",
+                        new java.net.SocketTimeoutException("Read timed out")));
 
-        assertThat(service.review(context()).outcome())
-                .isEqualTo(ModerationService.Outcome.RETRY_LATER);
+        ModerationService.ModerationResult result = service.review(context());
+
+        assertThat(result.outcome()).isEqualTo(ModerationService.Outcome.RETRY_LATER);
+        assertThat(result.failure())
+                .isEqualTo(ModerationService.FailureCategory.TIMEOUT);
         verify(restTemplate, times(1))
                 .postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }
@@ -154,7 +163,7 @@ class OpenRouterModerationServiceTest {
         when(budget.tryConsume()).thenReturn(false);
 
         assertThat(service.review(context()).outcome())
-                .isEqualTo(ModerationService.Outcome.RETRY_LATER);
+                .isEqualTo(ModerationService.Outcome.DEFERRED);
         verify(restTemplate, never())
                 .postForEntity(anyString(), any(HttpEntity.class), eq(String.class));
     }

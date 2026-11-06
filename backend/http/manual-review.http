@@ -1,0 +1,139 @@
+### Phase 3 — moderation retry tuning + manual review
+### Expected statuses are noted on every request.
+###
+### How to force a post into MANUAL_REVIEW quickly:
+###   MODERATION_MAX_ATTEMPTS=1
+###   OPENROUTER_API_KEY=wrong-key-please-fail
+###   MODERATION_BACKOFF_MINUTES=1
+###   MODERATION_JOB_DELAY_MS=5000
+### Create a post as a student, then wait for the retry job. The first real
+### failure moves it to MANUAL_REVIEW because max attempts is 1.
+###
+### @token       = student access token (owner of the post)
+### @adminToken  = MODERATOR or SUPER_ADMIN access token
+### @postId      = a post currently in MANUAL_REVIEW
+
+@host = http://localhost:8080
+@token = paste-user-access-token-here
+@adminToken = paste-admin-access-token-here
+@postId = 1
+
+### 1. Owner sees the MANUAL_REVIEW post in "my posts"  -> 200, status MANUAL_REVIEW
+GET {{host}}/api/posts/mine?status=MANUAL_REVIEW
+Authorization: Bearer {{token}}
+
+### 2. Owner opens the MANUAL_REVIEW post detail  -> 200
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+### 3. Another student opens the same detail  -> 404
+GET {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{otherUserToken}}
+
+### 4. Another student tries to save it  -> 404
+POST {{host}}/api/saved-posts/toggle/{{postId}}
+Authorization: Bearer {{otherUserToken}}
+
+### 5. Another student tries to report it  -> 404
+POST {{host}}/api/reports
+Authorization: Bearer {{otherUserToken}}
+Content-Type: application/json
+
+{
+  "postId": {{postId}},
+  "reason": "SCAM",
+  "comment": "Manual-review posts cannot be reported."
+}
+
+### 6. Owner tries to mark it sold  -> 400 (only APPROVED can be sold)
+POST {{host}}/api/posts/{{postId}}/sold
+Authorization: Bearer {{token}}
+
+### 7. Owner edits it  -> 200, status PENDING_REVIEW, attempts reset to 0
+###    (This removes it from the admin manual-review queue.)
+PATCH {{host}}/api/posts/{{postId}}
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="post"
+Content-Type: application/json
+
+{
+  "title": "Updated manual-review listing",
+  "description": "Edited so the AI should review it again.",
+  "categoryId": 1,
+  "price": 250.00,
+  "condition": "GOOD",
+  "removeImageIds": []
+}
+--WebAppBoundary--
+
+### 8. Admin queue, oldest first  -> 200
+GET {{host}}/api/admin/moderation/queue?page=0&size=20
+Authorization: Bearer {{adminToken}}
+
+### 9. Admin full detail for the post  -> 200
+GET {{host}}/api/admin/posts/{{postId}}
+Authorization: Bearer {{adminToken}}
+
+### 10. Admin approves it  -> 200, status APPROVED (or HIDDEN/USER_BLOCKED)
+POST {{host}}/api/admin/moderation/{{postId}}/approve
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "note": "Checked manually; listing is allowed."
+}
+
+### 11. Approving the same post again  -> 409
+POST {{host}}/api/admin/moderation/{{postId}}/approve
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "note": "Duplicate action."
+}
+
+### 12. Admin rejects a different MANUAL_REVIEW post  -> 200, status REJECTED
+POST {{host}}/api/admin/moderation/{{otherPostId}}/reject
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "reason": "Prohibited item under marketplace rules."
+}
+
+### 13. Reject with a too-short reason  -> 400
+POST {{host}}/api/admin/moderation/{{otherPostId}}/reject
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "reason": "bad"
+}
+
+### 14. Admin requeues a MANUAL_REVIEW post  -> 200, back to PENDING_REVIEW (attempts 0)
+POST {{host}}/api/admin/moderation/{{otherPostId}}/requeue
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "note": "OpenRouter quota has reset; try the AI again."
+}
+
+### 15. Requeueing a post no longer in manual review  -> 409
+POST {{host}}/api/admin/moderation/{{otherPostId}}/requeue
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "note": "Should conflict now."
+}
+
+### 16. User token on an admin route  -> 401
+GET {{host}}/api/admin/moderation/queue
+Authorization: Bearer {{token}}
+
+### 17. No token on an admin route  -> 401
+GET {{host}}/api/admin/moderation/queue

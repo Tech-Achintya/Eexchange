@@ -26,6 +26,8 @@ GET {{host}}/api/admin/users?status=TEMP_BLOCKED&collegeId=1&page=0&size=20
 Authorization: Bearer {{moderator}}
 
 ### 3. Detail: block fields, post counts, open reports, last 10 audit entries -> 200
+### recentAudit items: id (String), actorType (ADMIN|SYSTEM), actorId, actorName,
+### action, targetType, targetId, reason, metadata, createdAt.
 GET {{host}}/api/admin/users/{{userId}}
 Authorization: Bearer {{moderator}}
 

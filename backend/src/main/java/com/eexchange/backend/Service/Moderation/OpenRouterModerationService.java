@@ -2,6 +2,7 @@ package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
 import com.eexchange.backend.Service.ModerationService;
+import com.eexchange.backend.Service.ModerationService.FailureCategory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.IOException;
@@ -77,18 +79,19 @@ public class OpenRouterModerationService implements ModerationService {
             if (!budget.tryConsume()) {
                 log.warn("Moderation daily budget exhausted; post {} stays pending",
                         context.postId());
-                return ModerationResult.retryLater();
+                // A deferral is not a failed attempt.
+                return ModerationResult.deferred();
             }
 
-            Optional<String> content = callOnce(context, userMessage);
+            Attempt attemptResult = callOnce(context, userMessage);
 
-            if (content.isEmpty()) {
-                // 429 / 5xx / timeout / network: no in-call retry.
-                return ModerationResult.retryLater();
+            if (attemptResult.content().isEmpty()) {
+                // 429 / 5xx / timeout / network / unreadable body: no in-call retry.
+                return ModerationResult.retryLater(attemptResult.failure());
             }
 
             Optional<ModerationVerdictParser.Verdict> verdict =
-                    ModerationVerdictParser.parse(content.get());
+                    ModerationVerdictParser.parse(attemptResult.content().get());
 
             if (verdict.isPresent()) {
                 return verdict.get().approved()
@@ -98,14 +101,14 @@ public class OpenRouterModerationService implements ModerationService {
 
             log.warn("Malformed moderation answer for post {} (try {}/{}); "
                             + "answer length {}",
-                    context.postId(), attempt, maxTries, content.get().length());
+                    context.postId(), attempt, maxTries, attemptResult.content().get().length());
         }
 
-        return ModerationResult.retryLater();
+        return ModerationResult.retryLater(FailureCategory.MALFORMED_ANSWER);
     }
 
-    // Empty means "no usable answer" - caller must not retry in-call.
-    private Optional<String> callOnce(PostModerationContext context, String userMessage) {
+    // Empty content means "no usable answer" - caller must not retry in-call.
+    private Attempt callOnce(PostModerationContext context, String userMessage) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(properties.getApiKey().trim());
@@ -122,17 +125,35 @@ public class OpenRouterModerationService implements ModerationService {
             ResponseEntity<String> response = restTemplate.postForEntity(
                     endpoint(), new HttpEntity<>(body, headers), String.class);
 
-            return extractContent(response.getBody());
+            Optional<String> content = extractContent(response.getBody());
+            return content.isPresent()
+                    ? new Attempt(content, null)
+                    : new Attempt(Optional.empty(), FailureCategory.MALFORMED_ANSWER);
         } catch (HttpStatusCodeException ex) {
             // Status only: never log headers or the body.
             log.error("OpenRouter rejected moderation for post {}: HTTP {}",
                     context.postId(), ex.getStatusCode().value());
-            return Optional.empty();
+            return new Attempt(Optional.empty(), FailureCategory.HTTP_ERROR);
         } catch (RuntimeException ex) {
             log.error("OpenRouter call failed for post {}: {}",
                     context.postId(), ex.getClass().getSimpleName());
-            return Optional.empty();
+            return new Attempt(Optional.empty(), classify(ex));
         }
+    }
+
+    private FailureCategory classify(RuntimeException ex) {
+        Throwable cause = ex.getCause();
+        if (ex instanceof ResourceAccessException
+                && (isTimeout(cause) || isTimeout(ex))) {
+            return FailureCategory.TIMEOUT;
+        }
+        return FailureCategory.HTTP_ERROR;
+    }
+
+    private boolean isTimeout(Throwable throwable) {
+        return throwable instanceof java.net.SocketTimeoutException
+                || throwable instanceof java.net.http.HttpTimeoutException
+                || throwable instanceof java.io.InterruptedIOException;
     }
 
     private Optional<String> extractContent(String rawBody) {
@@ -203,6 +224,9 @@ public class OpenRouterModerationService implements ModerationService {
         factory.setConnectTimeout(Duration.ofSeconds(5));
         factory.setReadTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()));
         return new RestTemplate(factory);
+    }
+
+    private record Attempt(Optional<String> content, FailureCategory failure) {
     }
 
     private static String loadPrompt() {

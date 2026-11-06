@@ -30,22 +30,39 @@ public interface ModerationService {
     enum Outcome {
         APPROVED,
         REJECTED,
-        RETRY_LATER
+        RETRY_LATER,
+        DEFERRED
     }
 
-    // code is only set for REJECTED; never contains free-form model text.
-    record ModerationResult(Outcome outcome, String code) {
+    // Fixed categories only: never raw model text or response bodies.
+    enum FailureCategory {
+        HTTP_ERROR,
+        TIMEOUT,
+        MALFORMED_ANSWER
+    }
+
+    // code is only set for REJECTED; failure is only set for RETRY_LATER.
+    record ModerationResult(Outcome outcome, String code, FailureCategory failure) {
 
         public static ModerationResult approved() {
-            return new ModerationResult(Outcome.APPROVED, null);
+            return new ModerationResult(Outcome.APPROVED, null, null);
         }
 
         public static ModerationResult rejected(String code) {
-            return new ModerationResult(Outcome.REJECTED, code);
+            return new ModerationResult(Outcome.REJECTED, code, null);
         }
 
         public static ModerationResult retryLater() {
-            return new ModerationResult(Outcome.RETRY_LATER, null);
+            return retryLater(FailureCategory.HTTP_ERROR);
+        }
+
+        public static ModerationResult retryLater(FailureCategory failure) {
+            return new ModerationResult(Outcome.RETRY_LATER, null, failure);
+        }
+
+        // Daily budget exhausted: not a failed attempt, so the post is untouched.
+        public static ModerationResult deferred() {
+            return new ModerationResult(Outcome.DEFERRED, null, null);
         }
     }
 }
