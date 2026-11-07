@@ -88,6 +88,12 @@ public class PostModerationProcessor {
                 return null;
             }
 
+            int currentAttempts = post.getModerationAttempts() == null ? 0 : post.getModerationAttempts();
+            if (currentAttempts >= properties.getMaxAttempts()) {
+                log.warn("Post {} already reached max moderation attempts ({}); skipping LLM", postId, currentAttempts);
+                return null;
+            }
+
             List<String> imageKeys = orderedImageKeys(post);
             List<String> imageUrls = imageKeys.stream()
                     .map(storageService::publicUrl)
@@ -155,8 +161,12 @@ public class PostModerationProcessor {
                     post.setRejectionReason(null);
                 }
                 case REJECTED -> {
-                    post.setStatus(PostStatus.REJECTED);
-                    post.setRejectionReason(rejectionMessages.forCode(result.code()));
+                    if (attempts >= properties.getMaxAttempts()) {
+                        moveToManualReview(post, result, attempts);
+                    } else {
+                        post.setStatus(PostStatus.REJECTED);
+                        post.setRejectionReason(rejectionMessages.forCode(result.code()));
+                    }
                 }
                 case RETRY_LATER -> {
                     if (attempts >= properties.getMaxAttempts()) {
@@ -188,6 +198,8 @@ public class PostModerationProcessor {
                                     ModerationService.ModerationResult result,
                                     int attempts) {
 
+        boolean wasAlreadyManualReview = (post.getStatus() == PostStatus.MANUAL_REVIEW);
+
         post.setStatus(PostStatus.MANUAL_REVIEW);
 
         String lastFailure = result.failure() == null
@@ -207,7 +219,8 @@ public class PostModerationProcessor {
         String email = post.getUser() == null ? null : post.getUser().getEmail();
         String title = post.getTitle();
 
-        if (email != null && !email.isBlank()) {
+        // Send email ONLY once when entering manual review for the first time
+        if (!wasAlreadyManualReview && email != null && !email.isBlank()) {
             afterCommit(() -> emailService.sendManualReviewQueuedEmail(email, title));
         }
     }

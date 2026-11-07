@@ -134,6 +134,16 @@ public class PostService {
                     HttpStatus.BAD_REQUEST);
         }
 
+        if (post.getStatus() == PostStatus.MANUAL_REVIEW) {
+            throw new AppException("This post is under manual review by an admin and cannot be edited",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        if (post.getModerationAttempts() != null && post.getModerationAttempts() >= 3) {
+            throw new AppException("This post has reached the maximum review attempts and cannot be edited",
+                    HttpStatus.BAD_REQUEST);
+        }
+
         // Same validator as create: title, description, category, price rules.
         ValidPost fields = validatePostFields(request);
 
@@ -202,7 +212,6 @@ public class PostService {
             // Any edit needs a fresh AI review.
             post.setStatus(PostStatus.PENDING_REVIEW);
             // A new edit gets a fresh set of moderation attempts.
-            post.setModerationAttempts(0);
             post.setRejectionReason(null);
 
             Post saved = postRepository.saveAndFlush(post);

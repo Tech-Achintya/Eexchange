@@ -46,7 +46,11 @@ class AdminAuthControllerTest {
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
-
+    @Test
+    void check(){
+        String s = "admin_pass";
+        System.out.println(passwordEncoder.encode(s));
+    }
     @Test
     void loginSucceedsAndTokenUsesTheAdminsRealRole() throws Exception {
         Admin admin = Admin.builder()
