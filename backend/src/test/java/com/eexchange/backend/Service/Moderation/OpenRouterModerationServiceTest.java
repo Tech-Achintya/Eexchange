@@ -4,7 +4,6 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.eexchange.backend.Configuration.ModerationProperties;
-import com.eexchange.backend.Service.ModerationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -185,7 +184,7 @@ class OpenRouterModerationServiceTest {
         Map<String, Object> body = captor.getValue().getBody();
         assertThat(body.get("model")).isEqualTo("test/model");
         assertThat(body.get("temperature")).isEqualTo(0);
-        assertThat(body.get("max_tokens")).isEqualTo(50);
+        assertThat(body.get("max_tokens")).isEqualTo(600);
 
         List<Map<String, Object>> messages =
                 (List<Map<String, Object>>) body.get("messages");

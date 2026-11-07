@@ -16,7 +16,7 @@ public class ModerationProperties {
 
     private String provider = "openrouter";
     private String apiKey;
-    private String model;
+    private String model = "nvidia/nemotron-3.5-super-vl";
     private String baseUrl = "https://openrouter.ai/api/v1";
 
     private int timeoutSeconds = 25;

@@ -1,8 +1,6 @@
 package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
-import com.eexchange.backend.Service.ModerationService;
-import com.eexchange.backend.Service.ModerationService.FailureCategory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -116,7 +114,8 @@ public class OpenRouterModerationService implements ModerationService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", properties.getModel());
         body.put("temperature", 0);
-        body.put("max_tokens", 50);
+        body.put("max_tokens", 600);
+        body.put("reasoning", Map.of("effort", "low"));
         body.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", buildContentParts(userMessage, context))));

@@ -9,7 +9,6 @@ import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Service.AuditService;
 import com.eexchange.backend.Service.EmailService;
-import com.eexchange.backend.Service.ModerationService;
 import com.eexchange.backend.Service.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

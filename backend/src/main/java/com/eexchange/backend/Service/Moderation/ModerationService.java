@@ -1,4 +1,4 @@
-package com.eexchange.backend.Service;
+package com.eexchange.backend.Service.Moderation;
 
 import java.math.BigDecimal;
 import java.util.List;
