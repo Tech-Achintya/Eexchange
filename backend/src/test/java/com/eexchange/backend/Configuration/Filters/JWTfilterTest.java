@@ -4,11 +4,14 @@ import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AdminRole;
+import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Repository.AdminRepository;
 import com.eexchange.backend.Repository.UserRepository;
 import com.eexchange.backend.Service.CustomUserDetailsService;
 import com.eexchange.backend.Utils.JWTutil;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -27,7 +31,11 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -54,7 +62,8 @@ class JWTfilterTest {
         adminRepository = mock(AdminRepository.class);
 
         filter = new JWTfilter(
-                jwtUtil, userDetailsService, redisTemplate, userRepository, adminRepository);
+                jwtUtil, userDetailsService, redisTemplate, userRepository, adminRepository,
+                new ObjectMapper().registerModule(new JavaTimeModule()));
 
         SecurityContextHolder.clearContext();
     }
@@ -204,6 +213,51 @@ class JWTfilterTest {
 
         verify(chain).doFilter(request, response);
         verifyNoInteractions(jwtUtil, userDetailsService, redisTemplate, userRepository, adminRepository);
+    }
+
+    @Test
+    void redisStatusFailureFallsBackToDatabaseAndSkipsCacheWrite() throws Exception {
+        when(jwtUtil.extractUsername("token")).thenReturn("user@college.edu");
+        when(jwtUtil.extractUserId("token")).thenReturn(5L);
+        when(jwtUtil.extractCollegeId("token")).thenReturn(3L);
+        when(valueOps.get("user:status:5"))
+                .thenThrow(new RedisConnectionFailureException("down"));
+
+        User dbUser = User.builder()
+                .id(5L)
+                .status(UserStatus.ACTIVE)
+                .build();
+        when(userRepository.findById(5L)).thenReturn(Optional.of(dbUser));
+
+        UserDetails details = org.springframework.security.core.userdetails.User
+                .withUsername("user@college.edu")
+                .password("x")
+                .authorities("ROLE_USER")
+                .build();
+        when(userDetailsService.loadUserByUsername("user@college.edu")).thenReturn(details);
+        when(jwtUtil.validateToken("token", details)).thenReturn(true);
+
+        MockHttpServletResponse response = run("/api/saved-posts", "token");
+
+        assertThat(response.getStatus()).isEqualTo(200);
+        verify(valueOps, never()).set(eq("user:status:5"), anyString(),
+                any(java.time.Duration.class));
+    }
+
+    @Test
+    void redisCutoffFailureFailsClosedWith503() throws Exception {
+        when(jwtUtil.extractUsername("token")).thenReturn("user@college.edu");
+        when(jwtUtil.extractUserId("token")).thenReturn(5L);
+        when(valueOps.get("user:status:5")).thenReturn("ACTIVE");
+        when(valueOps.get("user:tokens-valid-after:5"))
+                .thenThrow(new RedisConnectionFailureException("down"));
+
+        MockHttpServletResponse response = run("/api/saved-posts", "token");
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("5");
+        assertThat(response.getContentAsString())
+                .contains("Service temporarily unavailable. Please try again shortly.");
     }
 
     private MockHttpServletResponse run(String path, String token) throws Exception {

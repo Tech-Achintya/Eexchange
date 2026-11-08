@@ -2,6 +2,10 @@ package com.eexchange.backend.Exception;
 import com.eexchange.backend.DTO.Response.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.data.redis.RedisSystemException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -100,6 +104,33 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error("Resource not found"));
+    }
+
+    @ExceptionHandler(RedisUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleRedisUnavailable(
+            RedisUnavailableException ex) {
+
+        log.warn("Redis unavailable; failing closed ({})",
+                ex.getCause() == null
+                        ? "unknown"
+                        : ex.getCause().getClass().getSimpleName());
+
+        return RedisFailureSupport.serviceUnavailableResponse();
+    }
+
+    @ExceptionHandler({
+            RedisConnectionFailureException.class,
+            RedisSystemException.class,
+            QueryTimeoutException.class,
+            DataAccessException.class
+    })
+    public ResponseEntity<ApiResponse<Void>> handleDataAccessUnavailable(
+            Exception ex) {
+
+        log.warn("Redis/data access unavailable; failing closed ({})",
+                ex.getClass().getSimpleName());
+
+        return RedisFailureSupport.serviceUnavailableResponse();
     }
 
     // Unexpected server errors only

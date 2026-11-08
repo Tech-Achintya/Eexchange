@@ -73,6 +73,19 @@ class RateLimitInterceptorTest {
     }
 
     @Test
+    void redisFailureFailsClosedWith503() throws Exception {
+        when(rateLimiter.consume(anyString(), anyInt(), anyInt()))
+                .thenThrow(new org.springframework.data.redis.RedisConnectionFailureException("down"));
+
+        mockMvc.perform(get("/test/limited"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "5"))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message")
+                        .value("Service temporarily unavailable. Please try again shortly."));
+    }
+
+    @Test
     void underLimitPassesThrough() throws Exception {
         when(rateLimiter.consume(anyString(), anyInt(), anyInt()))
                 .thenReturn(new RedisRateLimiter.RateLimitResult(true, 0));

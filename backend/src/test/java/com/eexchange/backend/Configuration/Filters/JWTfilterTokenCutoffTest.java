@@ -4,6 +4,8 @@ import com.eexchange.backend.Repository.AdminRepository;
 import com.eexchange.backend.Repository.UserRepository;
 import com.eexchange.backend.Service.CustomUserDetailsService;
 import com.eexchange.backend.Utils.JWTutil;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +50,8 @@ class JWTfilterTokenCutoffTest {
                 userDetailsService,
                 redisTemplate,
                 mock(UserRepository.class),
-                mock(AdminRepository.class));
+                mock(AdminRepository.class),
+                new ObjectMapper().registerModule(new JavaTimeModule()));
 
         SecurityContextHolder.clearContext();
     }

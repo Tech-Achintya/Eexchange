@@ -5,15 +5,18 @@ import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
+import com.eexchange.backend.Exception.RedisFailureSupport;
 import com.eexchange.backend.Repository.AdminRepository;
 import com.eexchange.backend.Repository.UserRepository;
 import com.eexchange.backend.Service.CustomUserDetailsService;
 import com.eexchange.backend.Utils.JWTutil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -31,6 +34,7 @@ import com.eexchange.backend.Service.UserStatusCache;
 
 
 @Component
+@Slf4j
 public class JWTfilter extends OncePerRequestFilter {
 
     private final JWTutil jwtUtil;
@@ -38,17 +42,20 @@ public class JWTfilter extends OncePerRequestFilter {
     private final StringRedisTemplate redisTemplate;
     private final UserRepository userRepository;
     private final AdminRepository adminRepository;
+    private final ObjectMapper objectMapper;
     private static final String KEY_TOKENS_VALID_AFTER = "user:tokens-valid-after:";
     public JWTfilter(JWTutil jwtUtil,
                      CustomUserDetailsService userDetailsService,
                      StringRedisTemplate redisTemplate,
                      UserRepository userRepository,
-                     AdminRepository adminRepository) {
+                     AdminRepository adminRepository,
+                     ObjectMapper objectMapper) {
         this.jwtUtil = jwtUtil;
         this.userDetailsService = userDetailsService;
         this.redisTemplate = redisTemplate;
         this.userRepository = userRepository;
         this.adminRepository = adminRepository;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -141,7 +148,21 @@ public class JWTfilter extends OncePerRequestFilter {
         }
 
         String statusKey = UserStatusCache.key(userId);
-        String status = redisTemplate.opsForValue().get(statusKey);
+        String status;
+        boolean statusCacheUnavailable = false;
+        try {
+            status = redisTemplate.opsForValue().get(statusKey);
+        } catch (RuntimeException ex) {
+            if (!RedisFailureSupport.isRedisFailure(ex)) {
+                throw ex;
+            }
+            // Redis is down: use the database as the source of truth and do
+            // not write the cache back. This is the normal cache-miss path.
+            statusCacheUnavailable = true;
+            status = null;
+            log.warn("Redis unavailable reading user status; falling back to DB ({})",
+                    ex.getClass().getSimpleName());
+        }
 
         if (status == null) {
             User user = userRepository.findById(userId).orElse(null);
@@ -151,8 +172,9 @@ public class JWTfilter extends OncePerRequestFilter {
                 return false;
             }
             status = user.getStatus().name();
-            redisTemplate.opsForValue().set(statusKey, status, UserStatusCache.TTL);
-
+            if (!statusCacheUnavailable) {
+                redisTemplate.opsForValue().set(statusKey, status, UserStatusCache.TTL);
+            }
         }
 
         if (UserStatus.PERM_BLOCKED.name().equals(status)) {
@@ -174,8 +196,20 @@ public class JWTfilter extends OncePerRequestFilter {
         // The cutoff is stored as epoch millis but floored to whole seconds,
         // because JWT "iat" is serialized in whole seconds too.
         // iat >= cutoff is valid. Admin tokens never reach this method.
-        String cutoffValue = redisTemplate.opsForValue()
-                .get(KEY_TOKENS_VALID_AFTER + userId);
+        String cutoffValue;
+        try {
+            cutoffValue = redisTemplate.opsForValue()
+                    .get(KEY_TOKENS_VALID_AFTER + userId);
+        } catch (RuntimeException ex) {
+            if (!RedisFailureSupport.isRedisFailure(ex)) {
+                throw ex;
+            }
+            // Can't verify the password-change cutoff: fail closed.
+            log.warn("Redis unavailable reading token cutoff; failing closed ({})",
+                    ex.getClass().getSimpleName());
+            sendServiceUnavailable(response);
+            return false;
+        }
 
         if (cutoffValue != null) {
             long cutoffMillis;
@@ -219,6 +253,10 @@ public class JWTfilter extends OncePerRequestFilter {
         }
 
         return true;
+    }
+
+    private void sendServiceUnavailable(HttpServletResponse response) throws IOException {
+        RedisFailureSupport.writeServiceUnavailable(response, objectMapper);
     }
 
     private void sendJsonError(HttpServletResponse response,

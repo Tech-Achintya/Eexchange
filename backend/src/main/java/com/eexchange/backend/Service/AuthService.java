@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PostConstruct;
 
 @Service
@@ -192,7 +193,7 @@ public class AuthService {
         // 1. Check failure lockout
         String failKey = KEY_LOGIN_FAIL + email;
         String failCountStr = redisTemplate.opsForValue().get(failKey);
-        int failCount = failCountStr != null ? Integer.parseInt(failCountStr) : 0;
+        int failCount = parseFailCount(failKey, failCountStr);
 
         if (failCount >= maxLoginFailures) {
             long minutes = Math.max(1, loginLockoutSeconds / 60);
@@ -213,7 +214,7 @@ public class AuthService {
 
         // 3. Do not reveal block status unless the password is correct
         if (user == null || !passwordMatches) {
-            recordFailedLogin(email, failKey, failCount);
+            recordFailedLogin(failKey);
             throw new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
         if (user.getDeletedAt() != null) {
@@ -385,9 +386,33 @@ public class AuthService {
         otpService.generateAndSendOtp(email, "signup");
     }
 
-    private void recordFailedLogin(String email, String failKey, int currentFails) {
-        redisTemplate.opsForValue().increment(failKey);
-        if (currentFails == 0) {
+    private int parseFailCount(String failKey, String value) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException ex) {
+            // A corrupt counter must not break login (INCR would fail on it).
+            // Reset it and start the count again from zero.
+            log.warn("Corrupt login failure counter; resetting it");
+            redisTemplate.delete(failKey);
+            return 0;
+        }
+    }
+
+    private void recordFailedLogin(String failKey) {
+        Long newCount = redisTemplate.opsForValue().increment(failKey);
+
+        if (newCount != null && newCount == 1L) {
+            redisTemplate.expire(failKey, Duration.ofSeconds(loginLockoutSeconds));
+            return;
+        }
+
+        // A counter from an older write may exist without a TTL. Fix that
+        // instead of letting the lockout live forever.
+        Long ttl = redisTemplate.getExpire(failKey, TimeUnit.SECONDS);
+        if (ttl != null && ttl == -1L) {
             redisTemplate.expire(failKey, Duration.ofSeconds(loginLockoutSeconds));
         }
     }

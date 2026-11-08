@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -59,6 +60,21 @@ class AuthRateLimitFilterTest {
         assertThat(last.getStatus()).isEqualTo(429);
         assertThat(last.getHeader("Retry-After")).isEqualTo("60");
         verify(chain, times(20)).doFilter(any(), any());
+    }
+
+    @Test
+    void redisFailureFailsClosedWith503() throws Exception {
+        when(rateLimiter.consume(anyString(), anyInt(), anyInt()))
+                .thenThrow(new RedisConnectionFailureException("down"));
+
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse response = run(chain, "10.1.2.3", null);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("5");
+        assertThat(response.getContentAsString())
+                .contains("Service temporarily unavailable. Please try again shortly.");
+        verify(chain, times(0)).doFilter(any(), any());
     }
 
     @Test

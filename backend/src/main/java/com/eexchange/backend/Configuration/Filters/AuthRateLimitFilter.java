@@ -2,11 +2,13 @@ package com.eexchange.backend.Configuration.Filters;
 
 import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.Configuration.RedisRateLimiter;
+import com.eexchange.backend.Exception.RedisFailureSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 @Component
+@Slf4j
 public class AuthRateLimitFilter extends OncePerRequestFilter {
 
     private final RedisRateLimiter rateLimiter;
@@ -53,8 +56,18 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
         // from X-Forwarded-For only for trusted proxies. Direct clients cannot spoof it.
         String key = "ratelimit:auth:ip:" + request.getRemoteAddr();
 
-        RedisRateLimiter.RateLimitResult result =
-                rateLimiter.consume(key, authLimitPerMinute, 60);
+        RedisRateLimiter.RateLimitResult result;
+        try {
+            result = rateLimiter.consume(key, authLimitPerMinute, 60);
+        } catch (RuntimeException ex) {
+            if (!RedisFailureSupport.isRedisFailure(ex)) {
+                throw ex;
+            }
+            log.warn("Auth rate limiter unavailable ({}); failing closed",
+                    ex.getClass().getSimpleName());
+            RedisFailureSupport.writeServiceUnavailable(response, objectMapper);
+            return;
+        }
 
         if (!result.allowed()) {
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());

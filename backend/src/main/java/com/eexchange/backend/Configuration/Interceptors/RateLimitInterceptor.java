@@ -3,6 +3,8 @@ package com.eexchange.backend.Configuration.Interceptors;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.UserPrincipal;
 import com.eexchange.backend.Exception.RateLimitExceededException;
+import com.eexchange.backend.Exception.RedisFailureSupport;
+import com.eexchange.backend.Exception.RedisUnavailableException;
 import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.Configuration.RedisRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,8 +53,17 @@ public class RateLimitInterceptor implements HandlerInterceptor {
             String identifier = resolveIdentifier(request, rateLimit.scope());
             String key = "ratelimit:" + name + ":" + identifier;
 
-            RedisRateLimiter.RateLimitResult result =
-                    rateLimiter.consume(key, rateLimit.limit(), rateLimit.windowSeconds());
+            RedisRateLimiter.RateLimitResult result;
+            try {
+                result = rateLimiter.consume(
+                        key, rateLimit.limit(), rateLimit.windowSeconds());
+            } catch (RuntimeException ex) {
+                if (!RedisFailureSupport.isRedisFailure(ex)) {
+                    throw ex;
+                }
+                // GlobalExceptionHandler turns this into a 503 + Retry-After.
+                throw new RedisUnavailableException(ex);
+            }
 
             if (!result.allowed()) {
                 throw new RateLimitExceededException(
