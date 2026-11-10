@@ -1,7 +1,6 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentAdmin;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.Request.AdminReportActionRequest;
 import com.eexchange.backend.DTO.Response.AdminReportResponse;
@@ -30,8 +29,6 @@ public class AdminReportController {
     private final AdminReportService adminReportService;
 
     @GetMapping
-    @RateLimit(name = "admin-reports-list", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<AdminReportResponse>>> list(
             @CurrentAdmin AdminPrincipal principal,
             @RequestParam(defaultValue = "OPEN") ReportStatus status,
@@ -45,8 +42,6 @@ public class AdminReportController {
     }
 
     @PatchMapping("/{id:\\d+}")
-    @RateLimit(name = "admin-reports-act", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> act(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id,

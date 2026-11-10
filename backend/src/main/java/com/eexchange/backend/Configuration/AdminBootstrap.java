@@ -3,6 +3,7 @@ package com.eexchange.backend.Configuration;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Repository.AdminRepository;
+import com.eexchange.backend.Utils.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +39,16 @@ public class AdminBootstrap implements ApplicationRunner {
             log.warn("No admin exists and APP_ADMIN_USERNAME/APP_ADMIN_EMAIL/APP_ADMIN_PASSWORD "
                     + "are not all set. Skipping admin bootstrap.");
             return;
+        }
+
+        // Refuse to create the first (most powerful) account with a weak
+        // password. Failing startup is deliberate: an empty admin table plus a
+        // weak bootstrap secret would leave the admin API effectively open.
+        if (!PasswordPolicy.isStrongAdminPassword(password, username, email)) {
+            throw new IllegalStateException(
+                    "APP_ADMIN_PASSWORD is too weak. It must be at least "
+                            + PasswordPolicy.ADMIN_MIN_LENGTH
+                            + " characters, unique, and must not equal the admin username or email.");
         }
 
         Admin admin = Admin.builder()

@@ -63,7 +63,7 @@ public class PostController {
     // ------------------------------------------------------------- update
 
     @PatchMapping(value = "/{id:\\d+}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @RateLimit(name = "posts-update", limit = 20, windowSeconds = 60,
+    @RateLimit(name = "posts-update", limit = 5, windowSeconds = 60,
             scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PostResponse>> updatePost(
             @CurrentUser UserPrincipal principal,
@@ -81,8 +81,6 @@ public class PostController {
     // --------------------------------------------------------------- sold
 
     @PostMapping("/{id:\\d+}/sold")
-    @RateLimit(name = "posts-sold", limit = 20, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PostResponse>> markSold(
             @CurrentUser UserPrincipal principal,
             @PathVariable Long id) {
@@ -94,8 +92,6 @@ public class PostController {
     // ------------------------------------------------------------- delete
 
     @DeleteMapping("/{id:\\d+}")
-    @RateLimit(name = "posts-delete", limit = 20, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<Void> deletePost(
             @CurrentUser UserPrincipal principal,
             @PathVariable Long id) {
@@ -107,8 +103,6 @@ public class PostController {
     // --------------------------------------------------------------- read
 
     @GetMapping
-    @RateLimit(name = "posts-feed", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<PostCardResponse>>> feed(
             @CurrentUser UserPrincipal principal,
             @RequestParam(required = false) Long category,
@@ -128,8 +122,6 @@ public class PostController {
 
     // \d+ keeps "/mine" from being captured as an id.
     @GetMapping("/{id:\\d+}")
-    @RateLimit(name = "posts-detail", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PostDetailResponse>> detail(
             @CurrentUser UserPrincipal principal,
             @PathVariable Long id) {
@@ -139,8 +131,6 @@ public class PostController {
     }
 
     @GetMapping("/mine")
-    @RateLimit(name = "posts-mine", limit = 30, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<PostDetailResponse>>> mine(
             @CurrentUser UserPrincipal principal,
             @RequestParam(required = false) PostStatus status,

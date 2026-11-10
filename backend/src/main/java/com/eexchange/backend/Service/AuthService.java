@@ -1,5 +1,6 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Configuration.RedisLuaScripts;
 import com.eexchange.backend.DTO.*;
 import com.eexchange.backend.DTO.Request.*;
 import com.eexchange.backend.DTO.Response.AuthResponse;
@@ -10,7 +11,9 @@ import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.CollegeRepository;
 import com.eexchange.backend.Repository.UserRepository;
 import com.eexchange.backend.Utils.JWTutil;
+import com.eexchange.backend.Utils.PasswordPolicy;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import jakarta.annotation.PostConstruct;
 
 @Service
@@ -37,16 +40,17 @@ public class AuthService {
     private final UserRepository userRepository;
     private final CollegeRepository collegeRepository;
     private final StringRedisTemplate redisTemplate;
+    private final UserStatusCache userStatusCache;
     private final PasswordEncoder passwordEncoder;
     private final JWTutil jwtUtil;
     private final EmailService emailService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Value("${app.login.max-failures:5}")
-    private int maxLoginFailures;
-
-    @Value("${app.login.lockout-seconds:900}")
-    private long loginLockoutSeconds;
+    private final TokenRevocationService tokenRevocationService;
+    private final LoginLockoutService loginLockoutService;
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            // Pending records written by an older deployment may contain fields
+            // that no longer exist (notably passwordHash). Ignore them instead
+            // of failing verification until the 10-minute TTL expires.
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Value("${app.password-reset.ttl-seconds:900}")
     private long passwordResetTtlSeconds;
@@ -74,7 +78,6 @@ public class AuthService {
     private static final String KEY_RESET_COOLDOWN = "pwd_reset:cooldown:";
     private static final String KEY_RESET_HOURLY = "pwd_reset:hourly:";
     private static final String KEY_PENDING_SIGNUP = "pending:signup:";
-    private static final String KEY_LOGIN_FAIL = "login:fail:";
 
     public boolean validateResetToken(String token) {
         if (token == null || token.isBlank()) {
@@ -91,29 +94,25 @@ public class AuthService {
             throw new AppException("An account with this email already exists", HttpStatus.CONFLICT);
         }
 
-        // 2. Refuse to overwrite an in-flight pending signup session
-        String pendingKey = KEY_PENDING_SIGNUP + email;
-        if (Boolean.TRUE.equals(redisTemplate.hasKey(pendingKey))) {
-            throw new AppException("A verification code was already sent for this email. Please verify the OTP or use resend.", HttpStatus.CONFLICT);
-        }
-
-        // 3. Resolve college
+        // 2. Resolve college
         CollegeDomainService.CollegeMatchResult matchResult = collegeDomainService.resolveCollege(email);
         College college = matchResult.getCollege();
 
-        // 4. Run the OTP step FIRST (enforces cooldown, hourly cap, and sends OTP)
+        // 3. Run the OTP step FIRST (enforces cooldown, hourly cap, and sends OTP).
+        //    A previous pending session is deliberately overwritten: pending data
+        //    contains no credential, so restarting signup can never let one
+        //    requester choose the password for another. The OTP cooldown still
+        //    rate-limits overwrites.
         otpService.generateAndSendOtp(email, "signup");
 
-        // 5. Only once OTP step succeeds, write pending signup data to Redis (TTL 10 min)
-        String hashedPassword = passwordEncoder.encode(request.getPassword());
+        // 4. Only once OTP step succeeds, write pending signup data to Redis (TTL 10 min)
         PendingSignupData pendingData = PendingSignupData.builder()
                 .email(email)
-                .name(request.getName().trim())
                 .collegeId(college.getId())
                 .isCollegeVerified(matchResult.isCollegeVerified())
-                .passwordHash(hashedPassword)
                 .build();
 
+        String pendingKey = KEY_PENDING_SIGNUP + email;
         try {
             String json = objectMapper.writeValueAsString(pendingData);
             redisTemplate.opsForValue().set(pendingKey, json, Duration.ofMinutes(10));
@@ -133,7 +132,10 @@ public class AuthService {
         // 1. Verify OTP from Redis (purpose: signup)
         otpService.verifyOtp(email, rawOtp, "signup");
 
-        // 2. Retrieve pending signup data
+        // 2. Retrieve pending signup data. Only the email, college and
+        //    verification flag are stored there; the name and password are taken
+        //    from this request, which is submitted by whoever successfully proved
+        //    control of the mailbox.
         String pendingKey = KEY_PENDING_SIGNUP + email;
         String pendingJson = redisTemplate.opsForValue().get(pendingKey);
         if (pendingJson == null) {
@@ -147,15 +149,22 @@ public class AuthService {
             throw new AppException("Invalid signup session data", HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
-        // 3. Resolve College entity
+        // 3. Validate the credential supplied at verification time.
+        String name = request.getName() == null ? "" : request.getName().trim();
+        if (name.length() < 2 || name.length() > 100) {
+            throw new AppException("Name must be between 2 and 100 characters", HttpStatus.BAD_REQUEST);
+        }
+        PasswordPolicy.validateUserPassword(request.getPassword());
+
+        // 4. Resolve College entity
         College college = collegeRepository.findById(pendingData.getCollegeId())
                 .orElseThrow(() -> new AppException("Associated college not found", HttpStatus.INTERNAL_SERVER_ERROR));
 
-        // 4. Persist User in PostgreSQL
+        // 5. Persist User in PostgreSQL
         User user = User.builder()
                 .email(pendingData.getEmail())
-                .name(pendingData.getName())
-                .passwordHash(pendingData.getPasswordHash())
+                .name(name)
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .college(college)
                 .isCollegeVerified(pendingData.isCollegeVerified())
                 .emailVerifiedAt(Instant.now())
@@ -165,13 +174,13 @@ public class AuthService {
 
         user = userRepository.save(user);
 
-        // 5. Cleanup pending signup key
+        // 6. Cleanup pending signup key
         redisTemplate.delete(pendingKey);
 
-        // 6. Cache user status in Redis
-        redisTemplate.opsForValue().set("user:status:" + user.getId(), user.getStatus().name());
+        // 7. Cache user status consistently with standard TTL (1 hour)
+        userStatusCache.put(user.getId(), user.getStatus());
 
-        // 7. Generate JWT
+        // 8. Generate JWT
         String token = jwtUtil.generateToken(user.getEmail(), user.getId(), college.getId());
 
         return AuthResponse.builder()
@@ -187,24 +196,12 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, String clientIp) {
         String email = request.getEmail().toLowerCase().trim();
 
-        // 1. Check failure lockout
-        String failKey = KEY_LOGIN_FAIL + email;
-        String failCountStr = redisTemplate.opsForValue().get(failKey);
-        int failCount = parseFailCount(failKey, failCountStr);
-
-        if (failCount >= maxLoginFailures) {
-            long minutes = Math.max(1, loginLockoutSeconds / 60);
-            throw new AppException(
-                    "Account temporarily locked due to repeated failed logins. Please try again in "
-                            + minutes + " minutes.",
-                    HttpStatus.TOO_MANY_REQUESTS
-            );
-        }
-
-        // 2. Always run BCrypt, even for unknown emails
+        // 1. Always run BCrypt, even for unknown emails. The password is checked
+        //    before the lockout so a legitimate owner is never locked out by
+        //    someone else's failed attempts from another address.
         User user = userRepository.findByEmail(email).orElse(null);
         String storedHash = (user != null && user.getPasswordHash() != null)
                 ? user.getPasswordHash()
@@ -212,9 +209,11 @@ public class AuthService {
 
         boolean passwordMatches = passwordEncoder.matches(request.getPassword(), storedHash);
 
-        // 3. Do not reveal block status unless the password is correct
+        // 2. Do not reveal block status unless the password is correct
         if (user == null || !passwordMatches) {
-            recordFailedLogin(failKey);
+            loginLockoutService.recordFailure(LoginLockoutService.SCOPE_USER, email, clientIp);
+            // Raises 429 once this identifier+IP pair has exhausted its attempts.
+            loginLockoutService.checkNotLocked(LoginLockoutService.SCOPE_USER, email, clientIp);
             throw new AppException("Invalid email or password", HttpStatus.UNAUTHORIZED);
         }
         if (user.getDeletedAt() != null) {
@@ -233,16 +232,14 @@ public class AuthService {
             );
         }
 
-        // 4. Successful login
-        redisTemplate.delete(failKey);
+        // 3. Successful login
+        loginLockoutService.clearFailures(LoginLockoutService.SCOPE_USER, email);
 
         user.setLastLoginAt(Instant.now());
         userRepository.save(user);
 
-        redisTemplate.opsForValue().set(
-                "user:status:" + user.getId(),
-                user.getStatus().name()
-        );
+        // Cache user status consistently with standard TTL (1 hour)
+        userStatusCache.put(user.getId(), user.getStatus());
 
         String token = jwtUtil.generateToken(
                 user.getEmail(),
@@ -265,17 +262,20 @@ public class AuthService {
     public void forgotPassword(ForgotPasswordRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        // 1. Cooldown
+        // 1. Enforce 60-second cooldown atomically via SET NX EX
         String cooldownKey = KEY_RESET_COOLDOWN + email;
-        Long cooldown = redisTemplate.getExpire(cooldownKey);
-        if (cooldown != null && cooldown > 0) {
+        Boolean cooldownSet = redisTemplate.opsForValue()
+                .setIfAbsent(cooldownKey, "1", Duration.ofSeconds(passwordResetCooldownSeconds));
+        if (!Boolean.TRUE.equals(cooldownSet)) {
+            Long cooldown = redisTemplate.getExpire(cooldownKey);
+            long waitSeconds = (cooldown != null && cooldown > 0) ? cooldown : passwordResetCooldownSeconds;
             throw new AppException(
-                    "Please wait " + cooldown + " seconds before requesting another reset link.",
+                    "Please wait " + waitSeconds + " seconds before requesting another reset link.",
                     HttpStatus.TOO_MANY_REQUESTS
             );
         }
 
-        // 2. Hourly cap
+        // 2. Check hourly cap
         String hourlyKey = KEY_RESET_HOURLY + email;
         String hourlyStr = redisTemplate.opsForValue().get(hourlyKey);
         int hourlyCount = hourlyStr != null ? Integer.parseInt(hourlyStr) : 0;
@@ -287,15 +287,12 @@ public class AuthService {
             );
         }
 
-        redisTemplate.opsForValue().set(
-                cooldownKey,
-                "1",
-                Duration.ofSeconds(passwordResetCooldownSeconds)
+        // Increment hourly counter atomically with 1-hour TTL
+        redisTemplate.execute(
+                RedisLuaScripts.INCR_WITH_TTL,
+                List.of(hourlyKey),
+                String.valueOf(Duration.ofHours(1).toSeconds())
         );
-        redisTemplate.opsForValue().increment(hourlyKey);
-        if (hourlyCount == 0) {
-            redisTemplate.expire(hourlyKey, Duration.ofHours(1));
-        }
 
         // 3. Generic behaviour for unknown / blocked accounts
         User user = userRepository.findByEmail(email).orElse(null);
@@ -357,9 +354,14 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+
+        // A reset must invalidate every JWT issued before this moment. Without
+        // this, a stolen token survives the "compromised account" recovery.
+        tokenRevocationService.revokeAllTokens(user.getId());
+
         redisTemplate.delete(redisKey);
         redisTemplate.delete(KEY_RESET_ACTIVE + user.getId());
-        redisTemplate.delete(KEY_LOGIN_FAIL + email);
+        loginLockoutService.clearFailures(LoginLockoutService.SCOPE_USER, email);
     }
 
     public void resendOtp(ResendOtpRequest request) {
@@ -384,36 +386,5 @@ public class AuthService {
         }
 
         otpService.generateAndSendOtp(email, "signup");
-    }
-
-    private int parseFailCount(String failKey, String value) {
-        if (value == null || value.isBlank()) {
-            return 0;
-        }
-        try {
-            return Math.max(0, Integer.parseInt(value.trim()));
-        } catch (NumberFormatException ex) {
-            // A corrupt counter must not break login (INCR would fail on it).
-            // Reset it and start the count again from zero.
-            log.warn("Corrupt login failure counter; resetting it");
-            redisTemplate.delete(failKey);
-            return 0;
-        }
-    }
-
-    private void recordFailedLogin(String failKey) {
-        Long newCount = redisTemplate.opsForValue().increment(failKey);
-
-        if (newCount != null && newCount == 1L) {
-            redisTemplate.expire(failKey, Duration.ofSeconds(loginLockoutSeconds));
-            return;
-        }
-
-        // A counter from an older write may exist without a TTL. Fix that
-        // instead of letting the lockout live forever.
-        Long ttl = redisTemplate.getExpire(failKey, TimeUnit.SECONDS);
-        if (ttl != null && ttl == -1L) {
-            redisTemplate.expire(failKey, Duration.ofSeconds(loginLockoutSeconds));
-        }
     }
 }

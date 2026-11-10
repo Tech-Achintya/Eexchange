@@ -14,6 +14,7 @@ import com.eexchange.backend.Repository.InterestMessageRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Service.Cache.FeedCacheService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,6 +50,7 @@ class PostQueryServiceTest {
     private StorageService storageService;
     private PostQueryService service;
     private InterestMessageRepository interestMessageRepository;
+    private FeedCacheService feedCacheService;
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
@@ -56,13 +58,15 @@ class PostQueryServiceTest {
         postImageRepository = mock(PostImageRepository.class);
         storageService = mock(StorageService.class);
         interestMessageRepository = mock(InterestMessageRepository.class);
+        feedCacheService = mock(FeedCacheService.class);
 
         service = new PostQueryService(
                 userRepository,
                 postRepository,
                 postImageRepository,
                 storageService,
-                interestMessageRepository);
+                interestMessageRepository,
+                feedCacheService);
 
         when(storageService.publicUrl(any()))
                 .thenAnswer(i -> "https://cdn.test/" + i.getArgument(0));

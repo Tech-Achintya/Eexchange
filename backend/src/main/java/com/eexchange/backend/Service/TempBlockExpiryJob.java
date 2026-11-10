@@ -1,5 +1,6 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Configuration.RedisLuaScripts;
 import com.eexchange.backend.Entity.Enums.UserStatus;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Repository.UserRepository;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -29,8 +31,10 @@ public class TempBlockExpiryJob {
 
     @Scheduled(fixedDelay = 60_000)
     public void run() {
+        String lockToken = UUID.randomUUID().toString();
+
         Boolean locked = redisTemplate.opsForValue()
-                .setIfAbsent(LOCK_KEY, "1", LOCK_TTL);
+                .setIfAbsent(LOCK_KEY, lockToken, LOCK_TTL);
 
         if (!Boolean.TRUE.equals(locked)) {
             log.debug("TEMP block expiry job skipped: lock held");
@@ -56,7 +60,7 @@ public class TempBlockExpiryJob {
                 }
             }
         } finally {
-            redisTemplate.delete(LOCK_KEY);
+            redisTemplate.execute(RedisLuaScripts.RELEASE_LOCK, List.of(LOCK_KEY), lockToken);
         }
     }
 }

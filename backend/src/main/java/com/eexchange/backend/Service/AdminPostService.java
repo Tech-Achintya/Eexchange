@@ -15,6 +15,7 @@ import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.AdminRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -43,6 +44,7 @@ public class AdminPostService {
     private final AuditService auditService;
     private final PostMediaCleanup mediaCleanup;
     private final StorageService storageService;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     @Transactional(readOnly = true)
     public PageResponse<AdminPostCardResponse> list(PostStatus status,
@@ -109,6 +111,8 @@ public class AdminPostService {
                 post.getStatus(),
                 post.getRejectionReason(),
                 post.getHiddenReason(),
+                post.getModerationAttempts(),
+                post.getEditCount(),
                 post.getCollege().getId(),
                 post.getCollege().getName(),
                 post.getUser().getId(),
@@ -152,6 +156,7 @@ public class AdminPostService {
 
         post.setStatus(PostStatus.DELETED);
         postRepository.save(post);
+        collegeFeedVersionService.incrementVersion(post.getCollege().getId());
 
         int resolved = reportRepository.resolveAllOpenForPost(
                 postId, ReportStatus.RESOLVED, ReportStatus.OPEN, admin, Instant.now(),

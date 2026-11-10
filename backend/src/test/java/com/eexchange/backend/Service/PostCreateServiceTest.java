@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.DTO.Request.PostCreateRequest;
 import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
@@ -63,7 +65,8 @@ class PostCreateServiceTest {
 
         service = new PostService(
                 userRepository, categoryRepository, postRepository,
-                storageService, eventPublisher);
+                storageService, eventPublisher,
+                mock(CollegeFeedVersionService.class));
 
         // @Value fields are not injected by plain construction.
         ReflectionTestUtils.setField(service, "expiryDays", 60L);

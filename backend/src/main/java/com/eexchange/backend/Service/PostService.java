@@ -2,8 +2,7 @@ package com.eexchange.backend.Service;
 
 import com.eexchange.backend.DTO.Request.PostCreateRequest;
 import com.eexchange.backend.DTO.Request.PostUpdateRequest;
-import com.eexchange.backend.DTO.Response.PostResponse;
-import com.eexchange.backend.Entity.Category;
+import com.eexchange.backend.DTO.Response.PostResponse;import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.Enums.ItemCondition;
 import com.eexchange.backend.Entity.Enums.PostStatus;
 import com.eexchange.backend.Entity.Post;
@@ -19,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,18 +42,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class PostService {
 
     private static final int MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    private static final String HIDDEN_REASON_ADMIN = "ADMIN";
+    private static final String HIDDEN_REASON_REPORTS = "REPORTS";
 
     private final UserRepository userRepository;
     private final CategoryRepository categoryRepository;
     private final PostRepository postRepository;
     private final StorageService storageService;
     private final ApplicationEventPublisher eventPublisher;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     @Value("${app.post.expiry-days:60}")
     private long expiryDays;
 
     @Value("${app.post.max-images:5}")
     private int maxImages;
+
+    @Value("${app.post.max-edits-before-manual-review:5}")
+    private int maxEditsBeforeManualReview;
 
     // ------------------------------------------------------------- create
 
@@ -108,6 +114,7 @@ public class PostService {
 
             registerRollbackCleanup(uploadedKeys, cleanedUp);
             eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
+            collegeFeedVersionService.incrementVersion(saved.getCollege().getId());
 
             return toResponse(saved);
         } catch (RuntimeException ex) {
@@ -139,14 +146,21 @@ public class PostService {
                     HttpStatus.BAD_REQUEST);
         }
 
-        if (post.getModerationAttempts() != null && post.getModerationAttempts() >= 3) {
-            throw new AppException("This post has reached the maximum review attempts and cannot be edited",
+        // Admin and report hides are moderation decisions, not user-editable
+        // state. Allowing an edit would send the post back through AI review,
+        // which clears hiddenReason on approval and silently un-hides it.
+        if (post.getStatus() == PostStatus.HIDDEN
+                && isModerationHidden(post.getHiddenReason())) {
+            throw new AppException("This post was hidden by moderation and cannot be edited",
                     HttpStatus.BAD_REQUEST);
         }
 
+        // Only APPROVED posts are in the college feed. Capture the previous
+        // visibility so the cache is only invalidated when it actually changes.
+        boolean wasVisible = post.getStatus() == PostStatus.APPROVED;
+
         // Same validator as create: title, description, category, price rules.
         ValidPost fields = validatePostFields(request);
-
         List<PreparedImage> prepared = prepareImages(newFiles);
 
         Set<Long> removeIds = request.getRemoveImageIds() == null
@@ -209,10 +223,20 @@ public class PostService {
             post.setPrice(fields.price());
             post.setCondition(fields.condition());
 
-            // Any edit needs a fresh AI review.
-            post.setStatus(PostStatus.PENDING_REVIEW);
-            // A new edit gets a fresh set of moderation attempts.
+            // Every edit is a fresh content revision: give the AI a fresh retry
+            // budget, but count the revision against the post's lifetime edit
+            // cap. Once the cap is reached the post is frozen in MANUAL_REVIEW
+            // so it can never keep consuming AI moderation calls.
+            int editCount = (post.getEditCount() == null ? 0 : post.getEditCount()) + 1;
+            post.setEditCount(editCount);
+            post.setModerationAttempts(0);
+            post.setAiReviewResult(null);
             post.setRejectionReason(null);
+
+            boolean requiresManualReview = editCount >= maxEditsBeforeManualReview;
+            post.setStatus(requiresManualReview
+                    ? PostStatus.MANUAL_REVIEW
+                    : PostStatus.PENDING_REVIEW);
 
             Post saved = postRepository.saveAndFlush(post);
 
@@ -221,7 +245,13 @@ public class PostService {
             // New objects disappear if it rolls back.
             registerRollbackCleanup(uploadedKeys, cleanedUp);
 
-            eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
+            // Do not queue AI moderation once the lifetime edit cap is reached.
+            if (!requiresManualReview) {
+                eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
+            }
+            if (wasVisible != (saved.getStatus() == PostStatus.APPROVED)) {
+                collegeFeedVersionService.incrementVersion(saved.getCollege().getId());
+            }
 
             return toResponse(saved);
         } catch (RuntimeException ex) {
@@ -234,6 +264,11 @@ public class PostService {
 
     // --------------------------------------------------------------- sold
 
+    private boolean isModerationHidden(String hiddenReason) {
+        return HIDDEN_REASON_ADMIN.equals(hiddenReason)
+                || HIDDEN_REASON_REPORTS.equals(hiddenReason);
+    }
+
     @Transactional
     public PostResponse markSold(Long userId, Long postId) {
         requireUser(userId);
@@ -245,7 +280,9 @@ public class PostService {
         }
 
         post.setStatus(PostStatus.SOLD);
-        return toResponse(postRepository.saveAndFlush(post));
+        Post saved = postRepository.saveAndFlush(post);
+        collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        return toResponse(saved);
     }
 
     // ------------------------------------------------------------- delete
@@ -265,6 +302,7 @@ public class PostService {
 
         post.setStatus(PostStatus.DELETED);
         postRepository.save(post);
+        collegeFeedVersionService.incrementVersion(post.getCollege().getId());
 
         deleteAfterCommit(keys, "deleted post image");
     }

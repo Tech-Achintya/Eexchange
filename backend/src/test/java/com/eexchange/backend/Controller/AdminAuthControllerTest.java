@@ -4,6 +4,7 @@ import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AdminRole;
 import com.eexchange.backend.Exception.GlobalExceptionHandler;
 import com.eexchange.backend.Repository.AdminRepository;
+import com.eexchange.backend.Service.LoginLockoutService;
 import com.eexchange.backend.Utils.JWTutil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,8 @@ class AdminAuthControllerTest {
         passwordEncoder = new BCryptPasswordEncoder(4);
 
         AdminAuthController controller =
-                new AdminAuthController(adminRepository, passwordEncoder, jwtUtil);
+                new AdminAuthController(adminRepository, passwordEncoder, jwtUtil,
+                        mock(LoginLockoutService.class));
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

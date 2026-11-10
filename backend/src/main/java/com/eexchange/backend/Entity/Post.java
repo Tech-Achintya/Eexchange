@@ -84,6 +84,13 @@ public class Post {
     @Builder.Default
     private Integer moderationAttempts = 0;
 
+    // Lifetime content revisions submitted by the owner. Unlike
+    // moderationAttempts this is never reset on edit; it caps how often a post
+    // can re-enter AI moderation before it is forced to manual review.
+    @Column(name = "edit_count", nullable = false)
+    @Builder.Default
+    private Integer editCount = 0;
+
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position ASC")
     @Builder.Default

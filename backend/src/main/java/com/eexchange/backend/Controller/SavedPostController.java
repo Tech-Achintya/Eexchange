@@ -10,7 +10,6 @@ import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.SavedPostRepository;
 import com.eexchange.backend.Repository.UserRepository;
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentUser;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,8 +40,6 @@ public class SavedPostController {
 
     @PostMapping("/toggle/{postId}")
     @Transactional
-    @RateLimit(name = "saved-posts-toggle", limit = 30, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Map<String, Object>>> toggleSavePost(
             @PathVariable Long postId,
             @CurrentUser UserPrincipal principal) {
@@ -80,8 +77,6 @@ public class SavedPostController {
 
     @GetMapping
     @Transactional(readOnly = true)
-    @RateLimit(name = "saved-posts-list", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<List<Long>>> getMySavedPostIds(
             @CurrentUser UserPrincipal principal) {
 

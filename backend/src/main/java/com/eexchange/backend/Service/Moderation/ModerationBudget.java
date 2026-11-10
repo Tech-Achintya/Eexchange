@@ -1,6 +1,7 @@
 package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
+import com.eexchange.backend.Configuration.RedisLuaScripts;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 
 // One Redis counter per UTC day, so a restart never resets the free-tier budget.
 @Component
@@ -26,13 +28,14 @@ public class ModerationBudget {
 
     public boolean tryConsume() {
         String key = currentKey();
-        Long count = redisTemplate.opsForValue().increment(key);
+        Long count = redisTemplate.execute(
+                RedisLuaScripts.INCR_WITH_TTL,
+                List.of(key),
+                String.valueOf(TTL.toSeconds())
+        );
 
         if (count == null) {
             return false;
-        }
-        if (count == 1L) {
-            redisTemplate.expire(key, TTL);
         }
         return count <= properties.getDailyBudget();
     }

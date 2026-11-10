@@ -1,8 +1,8 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Audit.AuditActorType;
-import com.eexchange.backend.Audit.AuditEventDocument;
-import com.eexchange.backend.Audit.AuditEventRepository;
+import com.eexchange.backend.Audit.AuditEvent;
+import com.eexchange.backend.Audit.AuditEventWriter;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
@@ -27,6 +27,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -37,15 +38,15 @@ import static org.mockito.Mockito.when;
 @ExtendWith(OutputCaptureExtension.class)
 class AuditServiceTest {
 
-    private AuditEventRepository auditEventRepository;
+    private AuditEventWriter auditEventWriter;
     private AdminRepository adminRepository;
     private AuditService service;
 
     @BeforeEach
     void setUp() {
-        auditEventRepository = mock(AuditEventRepository.class);
+        auditEventWriter = mock(AuditEventWriter.class);
         adminRepository = mock(AdminRepository.class);
-        service = new AuditService(auditEventRepository, adminRepository,
+        service = new AuditService(auditEventWriter, adminRepository,
                 new ObjectMapper().findAndRegisterModules());
 
         when(adminRepository.getReferenceById(1L))
@@ -67,12 +68,12 @@ class AuditServiceTest {
         service.log(1L, AuditAction.BLOCK_TEMP, AuditTargetType.USER, 20L,
                 "Repeated spam", Map.of("postsHidden", 2));
 
-        verifyNoInteractions(auditEventRepository);
+        verifyNoInteractions(auditEventWriter);
 
         TransactionSynchronizationManager.getSynchronizations()
                 .forEach(TransactionSynchronization::afterCommit);
 
-        AuditEventDocument saved = captureSingleSave();
+        AuditEvent saved = captureSingleSave();
         assertThat(saved.getAction()).isEqualTo(AuditAction.BLOCK_TEMP);
         assertThat(saved.getTargetId()).isEqualTo(20L);
         assertThat(saved.getMetadata()).containsEntry("postsHidden", 2);
@@ -89,13 +90,13 @@ class AuditServiceTest {
                 .forEach(s -> s.afterCompletion(
                         TransactionSynchronization.STATUS_ROLLED_BACK));
 
-        verify(auditEventRepository, never()).save(any());
+        verify(auditEventWriter, never()).write(any());
     }
 
     @Test
     void swallowsRepositoryFailureAndLogsRecoverableEvent(CapturedOutput output) {
-        when(auditEventRepository.save(any(AuditEventDocument.class)))
-                .thenThrow(new RuntimeException("mongo unavailable"));
+        doThrow(new RuntimeException("database unavailable"))
+                .when(auditEventWriter).write(any(AuditEvent.class));
 
         assertThatCode(() -> service.log(1L, AuditAction.DELETE_POST,
                 AuditTargetType.POST, 77L, "Policy violation", Map.of()))
@@ -105,7 +106,7 @@ class AuditServiceTest {
                 .contains("AUDIT_WRITE_FAILED")
                 .contains("DELETE_POST")
                 .contains("77")
-                .contains("mongo unavailable");
+                .contains("database unavailable");
     }
 
     @Test
@@ -116,11 +117,11 @@ class AuditServiceTest {
         service.logSystem(AuditAction.AUTO_UNBLOCK, AuditTargetType.USER, 20L,
                 "Temporary block expired", Map.of("postsRestored", 2));
 
-        ArgumentCaptor<AuditEventDocument> captor =
-                ArgumentCaptor.forClass(AuditEventDocument.class);
-        verify(auditEventRepository, times(2)).save(captor.capture());
+        ArgumentCaptor<AuditEvent> captor =
+                ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditEventWriter, times(2)).write(captor.capture());
 
-        List<AuditEventDocument> saved = captor.getAllValues();
+        List<AuditEvent> saved = captor.getAllValues();
         assertThat(saved.get(0).getActorType()).isEqualTo(AuditActorType.ADMIN);
         assertThat(saved.get(0).getActorId()).isEqualTo(1L);
         assertThat(saved.get(0).getActorName()).isEqualTo("root");
@@ -168,10 +169,10 @@ class AuditServiceTest {
         assertThat(saved.get("missing")).isNull();
     }
 
-    private AuditEventDocument captureSingleSave() {
-        ArgumentCaptor<AuditEventDocument> captor =
-                ArgumentCaptor.forClass(AuditEventDocument.class);
-        verify(auditEventRepository).save(captor.capture());
+    private AuditEvent captureSingleSave() {
+        ArgumentCaptor<AuditEvent> captor =
+                ArgumentCaptor.forClass(AuditEvent.class);
+        verify(auditEventWriter).write(captor.capture());
         return captor.getValue();
     }
 }

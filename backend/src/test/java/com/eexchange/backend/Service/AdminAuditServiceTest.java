@@ -1,7 +1,7 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Audit.AuditActorType;
-import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEvent;
 import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Response.AuditLogResponse;
 import com.eexchange.backend.DTO.Response.PageResponse;
@@ -41,7 +41,7 @@ class AdminAuditServiceTest {
     void forwardsEveryFilterAndNormalizesPaging() {
         Instant from = Instant.parse("2026-01-01T00:00:00Z");
         Instant to = Instant.parse("2026-02-01T00:00:00Z");
-        AuditEventDocument event = event();
+        AuditEvent event = event();
 
         when(auditEventRepository.search(
                 eq(AuditTargetType.POST), eq(77L), eq(1L),
@@ -82,7 +82,7 @@ class AdminAuditServiceTest {
         assertThat(pageable.getValue().getPageSize()).isEqualTo(20);
 
         AuditLogResponse response = result.content().get(0);
-        assertThat(response.id()).isEqualTo("evt-1");
+        assertThat(response.id()).isEqualTo(99L);
         assertThat(response.actorType()).isEqualTo(AuditActorType.ADMIN);
         assertThat(response.actorId()).isEqualTo(1L);
         assertThat(response.actorName()).isEqualTo("root");
@@ -92,9 +92,9 @@ class AdminAuditServiceTest {
         assertThat(response.metadata()).containsEntry("reportId", 9);
     }
 
-    private AuditEventDocument event() {
-        return AuditEventDocument.builder()
-                .id("evt-1")
+    private AuditEvent event() {
+        return AuditEvent.builder()
+                .id(99L)
                 .actorType(AuditActorType.ADMIN)
                 .actorId(1L)
                 .actorName("root")

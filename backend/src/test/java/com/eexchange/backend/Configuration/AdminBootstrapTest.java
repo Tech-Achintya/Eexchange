@@ -34,7 +34,7 @@ class AdminBootstrapTest {
 
         ReflectionTestUtils.setField(bootstrap, "username", "admin");
         ReflectionTestUtils.setField(bootstrap, "email", "Admin@Example.com");
-        ReflectionTestUtils.setField(bootstrap, "password", "secret123");
+        ReflectionTestUtils.setField(bootstrap, "password", "Str0ngBootstrap!2026");
     }
 
     @Test
@@ -53,7 +53,7 @@ class AdminBootstrapTest {
         assertThat(saved.getEmail()).isEqualTo("admin@example.com");
         assertThat(saved.getRole()).isEqualTo(AdminRole.SUPER_ADMIN);
         assertThat(saved.getIsActive()).isTrue();
-        assertThat(passwordEncoder.matches("secret123", saved.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches("Str0ngBootstrap!2026", saved.getPasswordHash())).isTrue();
     }
 
     @Test
@@ -71,6 +71,28 @@ class AdminBootstrapTest {
         ReflectionTestUtils.setField(bootstrap, "password", "");
 
         bootstrap.run(args);
+
+        verify(adminRepository, never()).save(any());
+    }
+
+    @Test
+    void refusesToCreateTheFirstAdminWithAWeakPassword() {
+        when(adminRepository.count()).thenReturn(0L);
+        ReflectionTestUtils.setField(bootstrap, "password", "secret123");
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> bootstrap.run(args));
+
+        verify(adminRepository, never()).save(any());
+    }
+
+    @Test
+    void refusesAPasswordEqualToTheUsername() {
+        when(adminRepository.count()).thenReturn(0L);
+        ReflectionTestUtils.setField(bootstrap, "password", "ADMIN");
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> bootstrap.run(args));
 
         verify(adminRepository, never()).save(any());
     }

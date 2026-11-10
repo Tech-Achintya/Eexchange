@@ -5,6 +5,7 @@ import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.AdminRepository;
+import com.eexchange.backend.Service.LoginLockoutService;
 import com.eexchange.backend.Utils.JWTutil;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -26,14 +27,17 @@ public class AdminAuthController {
     private final AdminRepository adminRepository;
     private final PasswordEncoder passwordEncoder;
     private final JWTutil jwtUtil;
+    private final LoginLockoutService loginLockoutService;
     private final String dummyPasswordHash;
 
     public AdminAuthController(AdminRepository adminRepository,
                                PasswordEncoder passwordEncoder,
-                               JWTutil jwtUtil) {
+                               JWTutil jwtUtil,
+                               LoginLockoutService loginLockoutService) {
         this.adminRepository = adminRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.loginLockoutService = loginLockoutService;
         this.dummyPasswordHash = passwordEncoder.encode(
                 "dummy-admin-password-" + UUID.randomUUID()
         );
@@ -41,9 +45,11 @@ public class AdminAuthController {
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<Map<String, Object>>> adminLogin(
-            @Valid @RequestBody AdminLoginRequest request) {
+            @Valid @RequestBody AdminLoginRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
 
         String identifier = request.getUsernameOrEmail().trim();
+        String clientIp = httpRequest.getRemoteAddr();
 
         Admin admin = adminRepository.findByEmail(identifier.toLowerCase())
                 .or(() -> adminRepository.findByUsername(identifier))
@@ -53,14 +59,22 @@ public class AdminAuthController {
         String storedHash = admin != null ? admin.getPasswordHash() : dummyPasswordHash;
         boolean passwordMatches = passwordEncoder.matches(request.getPassword(), storedHash);
 
-        // Do not reveal account state unless the password is correct.
+        // Do not reveal account state unless the password is correct. The
+        // password is checked before the lockout so a correct password from the
+        // real admin always works, even if another address is guessing.
         if (admin == null || !passwordMatches) {
+            loginLockoutService.recordFailure(
+                    LoginLockoutService.SCOPE_ADMIN, identifier, clientIp);
+            loginLockoutService.checkNotLocked(
+                    LoginLockoutService.SCOPE_ADMIN, identifier, clientIp);
             throw new AppException("Invalid admin credentials", HttpStatus.UNAUTHORIZED);
         }
 
         if (!Boolean.TRUE.equals(admin.getIsActive())) {
             throw new AppException("Admin account is deactivated.", HttpStatus.FORBIDDEN);
         }
+
+        loginLockoutService.clearFailures(LoginLockoutService.SCOPE_ADMIN, identifier);
 
         admin.setLastLoginAt(Instant.now());
         adminRepository.save(admin);

@@ -14,7 +14,6 @@ import com.eexchange.backend.Repository.InterestMessageRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.UserRepository;
-import com.eexchange.backend.Utils.HtmlEscaper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -50,7 +49,6 @@ public class InterestService {
     private final UserRepository userRepository;
     private final PostImageRepository postImageRepository;
     private final StorageService storageService;
-    private final EmailService emailService;
 
     // --------------------------------------------------------------- create
 
@@ -92,24 +90,7 @@ public class InterestService {
             throw alreadyInterested();
         }
 
-        String ownerEmail = post.getUser().getEmail();
-        String senderName = sender.getName();
-        String postTitle = post.getTitle();
-
-        // Email only after commit, and never let email failures fail the request.
-        afterCommit(() -> {
-            try {
-                emailService.sendInterestEmail(
-                        ownerEmail,
-                        HtmlEscaper.escape(senderName),
-                        HtmlEscaper.escape(message),
-                        HtmlEscaper.escape(contactInfo),
-                        HtmlEscaper.escape(postTitle));
-            } catch (RuntimeException ex) {
-                // Never log the owner's email address.
-                log.warn("Interest email failed for post {}", postId, ex);
-            }
-        });
+        // No email sent for interest messages; emails are auth-only.
     }
 
     // ------------------------------------------------------------- received

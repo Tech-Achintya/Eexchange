@@ -146,6 +146,40 @@ public class EmailService {
             return false;
         }
     }
+    @Async("emailTaskExecutor")
+    public void sendAccountBlockedEmail(String toEmail, String reason, Instant blockedUntil) {
+        if (isDevProfile()) {
+            log.info("[dev] Account blocked for {} until {} (reason: {})",
+                    toEmail, blockedUntil, reason);
+        }
+
+        String title = "Your Eexchange Account Has Been Blocked";
+        String html = "<div style='font-family:Arial,Helvetica,sans-serif; padding:20px; color:#333;'>"
+                + "<h2 style='color:#DC2626;'>" + appName + " – Account Blocked</h2>"
+                + "<p>Your account has been temporarily blocked.</p>"
+                + "<p><strong>Reason:</strong> " + HtmlEscaper.escape(reason) + "</p>"
+                + "<p><strong>Blocked Until:</strong> " + blockedUntil + "</p>"
+                + "<p>If you believe this is a mistake, please contact support.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, title, html);
+    }
+
+    @Async("emailTaskExecutor")
+    public void sendAccountUnblockedEmail(String toEmail) {
+        if (isDevProfile()) {
+            log.info("[dev] Account unblocked for {}", toEmail);
+        }
+
+        String title = "Your Eexchange Account Has Been Unblocked";
+        String html = "<div style='font-family:Arial,Helvetica,sans-serif; padding:20px; color:#333;'>"
+                + "<h2 style='color:#16A34A;'>" + appName + " – Account Unblocked</h2>"
+                + "<p>Good news! Your account is now active again.</p>"
+                + "<p>You can continue using the platform as normal.</p>"
+                + "</div>";
+
+        sendEmail(toEmail, title, html);
+    }
 
     private boolean isDevProfile() {
         return environment.matchesProfiles("dev","local");
@@ -164,128 +198,5 @@ public class EmailService {
             return "***" + (at >= 0 ? email.substring(at) : "");
         }
         return email.charAt(0) + "***" + email.substring(at);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendAccountBlockedEmail(String toEmail, String reason, Instant blockedUntil) {
-        if (isDevProfile()) {
-            log.info("[dev] Account block email for {} until {} (reason: {})",
-                    toEmail, blockedUntil, reason);
-        }
-
-        String duration = blockedUntil == null
-                ? "This is a permanent suspension."
-                : "Your account is suspended until <strong>" + blockedUntil + "</strong>.";
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #b91c1c;'>" + appName + " account suspended</h2>"
-                + "<p>" + duration + "</p>"
-                + "<p><strong>Reason:</strong> " + reason + "</p>"
-                + "<p style='color: #6b7280;'>If you believe this was a mistake, contact support.</p>"
-                + "</div>";
-
-        sendEmail(toEmail, "Your " + appName + " account has been blocked", html);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendAccountUnblockedEmail(String toEmail) {
-        if (isDevProfile()) {
-            log.info("[dev] Account unblocked email for {}", toEmail);
-        }
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #15803d;'>Your " + appName + " account is active again</h2>"
-                + "<p>You can now log in and use the marketplace normally.</p>"
-                + "</div>";
-
-        sendEmail(toEmail, "Your " + appName + " account has been unblocked", html);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendInterestEmail(String toEmail,
-                                  String escapedSenderName,
-                                  String escapedMessage,
-                                  String escapedContactInfo,
-                                  String escapedPostTitle) {
-        if (isDevProfile()) {
-            log.info("[dev] Interest notification for {} about post '{}'",
-                    toEmail, escapedPostTitle);
-        }
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #4F46E5;'>New interest in your post</h2>"
-                + "<p><strong>Post:</strong> " + escapedPostTitle + "</p>"
-                + "<p><strong>From:</strong> " + escapedSenderName + "</p>"
-                + "<p><strong>Message:</strong><br/>" + escapedMessage + "</p>"
-                + "<p><strong>Contact info:</strong><br/>" + escapedContactInfo + "</p>"
-                + "<p style='color: #6b7280;'>Reply using the contact info above.</p>"
-                + "</div>";
-
-        sendEmail(toEmail, "New interest in your " + appName + " post", html);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendManualReviewQueuedEmail(String toEmail, String postTitle) {
-        if (isDevProfile()) {
-            log.info("[dev] Manual review queued email for {} about '{}'", toEmail, postTitle);
-        }
-
-        String escapedTitle = HtmlEscaper.escape(postTitle);
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #4F46E5;'>" + appName + " listing under manual review</h2>"
-                + "<p>Your listing <strong>" + escapedTitle + "</strong> is under manual review.</p>"
-                + "<p>Our moderation team will review it and we will notify you with the result.</p>"
-                + "</div>";
-
-        sendEmail(toEmail, "Your " + appName + " listing is under manual review", html);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendManualReviewApprovedEmail(String toEmail,
-                                              String escapedPostTitle,
-                                              String escapedNote,
-                                              boolean live) {
-        if (isDevProfile()) {
-            log.info("[dev] Manual review approved email for {} about '{}' (live: {})",
-                    toEmail, escapedPostTitle, live);
-        }
-
-        String outcome = live
-                ? "<p>Your listing is approved and is now live in the marketplace.</p>"
-                : "<p>Your listing has been approved. It will become visible once your "
-                        + "account is active again.</p>";
-
-        String note = escapedNote == null || escapedNote.isBlank()
-                ? ""
-                : "<p><strong>Moderator note:</strong><br/>" + escapedNote + "</p>";
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #15803d;'>" + appName + " listing approved</h2>"
-                + "<p><strong>" + escapedPostTitle + "</strong></p>"
-                + outcome
-                + note
-                + "</div>";
-
-        sendEmail(toEmail, "Your " + appName + " listing was approved", html);
-    }
-
-    @Async("emailTaskExecutor")
-    public void sendManualReviewRejectedEmail(String toEmail,
-                                              String escapedPostTitle,
-                                              String escapedReason) {
-        if (isDevProfile()) {
-            log.info("[dev] Manual review rejected email for {} about '{}'",
-                    toEmail, escapedPostTitle);
-        }
-
-        String html = "<div style='font-family: Arial, sans-serif; padding: 24px; color: #1f2937;'>"
-                + "<h2 style='color: #b91c1c;'>" + appName + " listing rejected</h2>"
-                + "<p>Your listing <strong>" + escapedPostTitle + "</strong> was rejected.</p>"
-                + "<p><strong>Reason:</strong><br/>" + escapedReason + "</p>"
-                + "<p style='color: #6b7280;'>You can edit the listing and submit it again.</p>"
-                + "</div>";
-
-        sendEmail(toEmail, "Your " + appName + " listing was rejected", html);
     }
 }

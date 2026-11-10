@@ -46,8 +46,6 @@ public class InterestController {
     }
 
     @GetMapping("/api/interests/received")
-    @RateLimit(name = "interests-received", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<InterestReceivedResponse>>> received(
             @CurrentUser UserPrincipal principal,
             @RequestParam(defaultValue = "false") boolean unreadOnly,
@@ -59,8 +57,6 @@ public class InterestController {
     }
 
     @GetMapping("/api/interests/sent")
-    @RateLimit(name = "interests-sent", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<InterestSentResponse>>> sent(
             @CurrentUser UserPrincipal principal,
             @RequestParam(defaultValue = "0") int page,
@@ -71,8 +67,6 @@ public class InterestController {
     }
 
     @PatchMapping("/api/interests/{id:\\d+}/read")
-    @RateLimit(name = "interests-mark-read", limit = 60, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> markRead(
             @CurrentUser UserPrincipal principal,
             @PathVariable Long id) {
@@ -83,8 +77,6 @@ public class InterestController {
     }
 
     @GetMapping("/api/interests/unread-count")
-    @RateLimit(name = "interests-unread-count", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<UnreadCountResponse>> unreadCount(
             @CurrentUser UserPrincipal principal) {
 

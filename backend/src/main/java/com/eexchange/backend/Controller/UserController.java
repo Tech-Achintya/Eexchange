@@ -42,8 +42,6 @@ public class UserController {
     }
 
     @PatchMapping("/me")
-    @RateLimit(name = "users-update-profile", limit = 20, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<UserProfileResponse>> updateMe(
             @CurrentUser UserPrincipal principal,
             @Valid @RequestBody UpdateProfileRequest request) {

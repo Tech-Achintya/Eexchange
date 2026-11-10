@@ -120,64 +120,78 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                                         @Param("now") Instant now,
                                         Pageable pageable);
 
-    // Admin manual-review queue: oldest first (queuedAt is updatedAt).
-    @EntityGraph(attributePaths = {"user", "college"})
-    @Query("""
-            select p from Post p
-            where p.status = :status
-            order by p.updatedAt asc, p.id asc
-            """)
-    Page<Post> findManualReviewQueue(@Param("status") PostStatus status,
-                                     Pageable pageable);
+    // Admin moderation queue: posts the AI sent to manual review, plus posts
+    // that are still PENDING_REVIEW but whose last AI verdict was RETRY_LATER.
+    // Native query because the retry state lives in the ai_review_result jsonb
+    // column. Oldest first (queuedAt is updatedAt).
+    @Query(value = """
+            select p.* from posts p
+            where p.status = 'MANUAL_REVIEW'
+               or (p.status = 'PENDING_REVIEW'
+                   and p.ai_review_result ->> 'verdict' = 'RETRY_LATER')
+            order by p.updated_at asc, p.id asc
+            """,
+            countQuery = """
+            select count(*) from posts p
+            where p.status = 'MANUAL_REVIEW'
+               or (p.status = 'PENDING_REVIEW'
+                   and p.ai_review_result ->> 'verdict' = 'RETRY_LATER')
+            """,
+            nativeQuery = true)
+    Page<Post> findModerationQueue(Pageable pageable);
 
     // One conditional update per admin action: 0 rows means the post moved on.
+    // Both MANUAL_REVIEW and retry-later PENDING_REVIEW rows are actionable.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            update Post p
-               set p.status = :status,
-                   p.rejectionReason = null,
-                   p.hiddenReason = :hiddenReason,
-                   p.updatedAt = :now
+    @Query(value = """
+            update posts p
+               set status = :status,
+                   rejection_reason = null,
+                   hidden_reason = :hiddenReason,
+                   updated_at = :now
              where p.id = :postId
-               and p.status = :expectedStatus
-            """)
+               and (p.status = 'MANUAL_REVIEW'
+                    or (p.status = 'PENDING_REVIEW'
+                        and p.ai_review_result ->> 'verdict' = 'RETRY_LATER'))
+            """, nativeQuery = true)
     int approveFromManualReview(@Param("postId") Long postId,
-                                @Param("status") PostStatus status,
+                                @Param("status") String status,
                                 @Param("hiddenReason") String hiddenReason,
-                                @Param("expectedStatus") PostStatus expectedStatus,
                                 @Param("now") Instant now);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            update Post p
-               set p.status = :status,
-                   p.rejectionReason = :reason,
-                   p.hiddenReason = null,
-                   p.updatedAt = :now
+    @Query(value = """
+            update posts p
+               set status = :status,
+                   rejection_reason = :reason,
+                   hidden_reason = null,
+                   updated_at = :now
              where p.id = :postId
-               and p.status = :expectedStatus
-            """)
+               and (p.status = 'MANUAL_REVIEW'
+                    or (p.status = 'PENDING_REVIEW'
+                        and p.ai_review_result ->> 'verdict' = 'RETRY_LATER'))
+            """, nativeQuery = true)
     int rejectFromManualReview(@Param("postId") Long postId,
-                               @Param("status") PostStatus status,
+                               @Param("status") String status,
                                @Param("reason") String reason,
-                               @Param("expectedStatus") PostStatus expectedStatus,
                                @Param("now") Instant now);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("""
-            update Post p
-               set p.status = :status,
-                   p.moderationAttempts = 0,
-                   p.rejectionReason = null,
-                   p.hiddenReason = null,
-                   p.aiReviewResult = null,
-                   p.updatedAt = :now
+    @Query(value = """
+            update posts p
+               set status = :status,
+                   moderation_attempts = 0,
+                   rejection_reason = null,
+                   hidden_reason = null,
+                   ai_review_result = null,
+                   updated_at = :now
              where p.id = :postId
-               and p.status = :expectedStatus
-            """)
+               and (p.status = 'MANUAL_REVIEW'
+                    or (p.status = 'PENDING_REVIEW'
+                        and p.ai_review_result ->> 'verdict' = 'RETRY_LATER'))
+            """, nativeQuery = true)
     int requeueFromManualReview(@Param("postId") Long postId,
-                                @Param("status") PostStatus status,
-                                @Param("expectedStatus") PostStatus expectedStatus,
+                                @Param("status") String status,
                                 @Param("now") Instant now);
 
     // Atomic auto-hide: only the first report that crosses the threshold wins.

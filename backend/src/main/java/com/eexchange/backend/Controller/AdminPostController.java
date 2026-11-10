@@ -1,7 +1,6 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentAdmin;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.Request.AdminPostDeleteRequest;
 import com.eexchange.backend.DTO.Response.AdminPostCardResponse;
@@ -31,8 +30,6 @@ public class AdminPostController {
     private final AdminPostService adminPostService;
 
     @GetMapping
-    @RateLimit(name = "admin-posts-list", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<AdminPostCardResponse>>> list(
             @CurrentAdmin AdminPrincipal principal,
             @RequestParam(required = false) PostStatus status,
@@ -48,8 +45,6 @@ public class AdminPostController {
     }
 
     @GetMapping("/{id:\\d+}")
-    @RateLimit(name = "admin-posts-detail", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<AdminPostDetailResponse>> detail(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id) {
@@ -61,8 +56,6 @@ public class AdminPostController {
     }
 
     @DeleteMapping("/{id:\\d+}")
-    @RateLimit(name = "admin-posts-delete", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> delete(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id,

@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.DTO.Request.ChangePasswordRequest;
 import com.eexchange.backend.DTO.Request.DeleteAccountRequest;
 import com.eexchange.backend.DTO.Response.TokenResponse;
@@ -20,7 +22,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class UserProfileServiceTest {
@@ -47,6 +47,8 @@ class UserProfileServiceTest {
     private UserProfileService service;
     private PostImageRepository postImageRepository;
     private StorageService storageService;
+    private TokenRevocationService tokenRevocationService;
+    private LoginLockoutService loginLockoutService;
 
 
     @BeforeEach
@@ -62,6 +64,8 @@ class UserProfileServiceTest {
         valueOperations = mock(ValueOperations.class);
         postImageRepository = mock(PostImageRepository.class);
         storageService = mock(StorageService.class);
+        tokenRevocationService = mock(TokenRevocationService.class);
+        loginLockoutService = mock(LoginLockoutService.class);
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(jwtUtil.getExpiryMs()).thenReturn(3_600_000L);
@@ -75,7 +79,10 @@ class UserProfileServiceTest {
                 jwtUtil,
                 redisTemplate,
                 postImageRepository,
-                storageService);
+                storageService,
+                mock(CollegeFeedVersionService.class),
+                tokenRevocationService,
+                loginLockoutService);
     }
 
     @Test
@@ -128,13 +135,11 @@ class UserProfileServiceTest {
                 7L, changePassword("oldpass123", "newpass123"));
 
         assertThat(response.token()).isEqualTo("fresh-token");
-        verify(redisTemplate).delete("login:fail:user@college.edu");
+        verify(loginLockoutService)
+                .clearFailures(LoginLockoutService.SCOPE_USER, "user@college.edu");
 
-        InOrder order = inOrder(valueOperations, jwtUtil);
-        order.verify(valueOperations).set(
-                eq("user:tokens-valid-after:7"),
-                anyString(),
-                eq(Duration.ofMillis(3_600_000L)));
+        InOrder order = inOrder(tokenRevocationService, jwtUtil);
+        order.verify(tokenRevocationService).revokeAllTokens(7L);
         order.verify(jwtUtil).generateToken("user@college.edu", 7L, 3L);
     }
 
@@ -175,7 +180,8 @@ class UserProfileServiceTest {
 
         verify(redisTemplate).delete("user:status:7");
         verify(redisTemplate).delete("user:tokens-valid-after:7");
-        verify(redisTemplate).delete("login:fail:user@college.edu");
+        verify(loginLockoutService)
+                .clearFailures(LoginLockoutService.SCOPE_USER, "user@college.edu");
     }
 
     private User existingUser() {

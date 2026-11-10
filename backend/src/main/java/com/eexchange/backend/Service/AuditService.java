@@ -1,8 +1,8 @@
 package com.eexchange.backend.Service;
 
 import com.eexchange.backend.Audit.AuditActorType;
-import com.eexchange.backend.Audit.AuditEventDocument;
-import com.eexchange.backend.Audit.AuditEventRepository;
+import com.eexchange.backend.Audit.AuditEvent;
+import com.eexchange.backend.Audit.AuditEventWriter;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
@@ -22,10 +22,10 @@ import java.util.Map;
 /**
  * Best-effort audit writer.
  * <p>
- * The event is written to MongoDB only AFTER the caller's transaction commits.
- * A failed Mongo write never fails the business action: the full event is
- * logged as one JSON line prefixed {@code AUDIT_WRITE_FAILED} so it can be
- * recovered from logs. On rollback nothing is written.
+ * The event is written to PostgreSQL only AFTER the caller's transaction
+ * commits. A failed audit write never fails the business action: the full
+ * event is logged as one JSON line prefixed {@code AUDIT_WRITE_FAILED} so it
+ * can be recovered from logs. On rollback nothing is written.
  */
 @Service
 @RequiredArgsConstructor
@@ -35,7 +35,7 @@ public class AuditService {
     private static final String SYSTEM_ACTOR_NAME = "system";
     private static final String MDC_REQUEST_ID = "requestId";
 
-    private final AuditEventRepository auditEventRepository;
+    private final AuditEventWriter auditEventWriter;
     private final AdminRepository adminRepository;
     private final ObjectMapper objectMapper;
 
@@ -55,7 +55,7 @@ public class AuditService {
 
         Admin admin = adminRepository.getReferenceById(adminId);
 
-        writeAfterCommit(AuditEventDocument.builder()
+        writeAfterCommit(AuditEvent.builder()
                 .actorType(AuditActorType.ADMIN)
                 .actorId(adminId)
                 .actorName(admin.getUsername())
@@ -78,7 +78,7 @@ public class AuditService {
                           String reason,
                           Map<String, Object> metadata) {
 
-        writeAfterCommit(AuditEventDocument.builder()
+        writeAfterCommit(AuditEvent.builder()
                 .actorType(AuditActorType.SYSTEM)
                 .actorId(null)
                 .actorName(SYSTEM_ACTOR_NAME)
@@ -92,7 +92,7 @@ public class AuditService {
                 .build());
     }
 
-    private void writeAfterCommit(AuditEventDocument event) {
+    private void writeAfterCommit(AuditEvent event) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(
                     new TransactionSynchronization() {
@@ -108,15 +108,15 @@ public class AuditService {
         write(event);
     }
 
-    private void write(AuditEventDocument event) {
+    private void write(AuditEvent event) {
         try {
-            auditEventRepository.save(event);
+            auditEventWriter.write(event);
         } catch (RuntimeException ex) {
             log.error("AUDIT_WRITE_FAILED {}", toJson(event), ex);
         }
     }
 
-    private String toJson(AuditEventDocument event) {
+    private String toJson(AuditEvent event) {
         try {
             return objectMapper.writeValueAsString(event);
         } catch (Exception ex) {
@@ -150,7 +150,7 @@ public class AuditService {
             return value;
         }
         // Enums, Instant, collections and any other object become strings so
-        // Mongo never has to guess a mapping.
+        // the JSON column never has to guess a mapping.
         return value.toString();
     }
 }

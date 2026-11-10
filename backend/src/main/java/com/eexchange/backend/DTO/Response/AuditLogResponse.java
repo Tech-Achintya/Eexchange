@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.Map;
 
 public record AuditLogResponse(
-        String id,
+        Long id,
         AuditActorType actorType,
         Long actorId,
         String actorName,

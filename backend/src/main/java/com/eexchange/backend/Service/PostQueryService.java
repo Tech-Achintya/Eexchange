@@ -8,9 +8,11 @@ import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
+import com.eexchange.backend.Repository.InterestMessageRepository;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Service.Cache.FeedCacheService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -26,9 +28,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import com.eexchange.backend.Repository.InterestMessageRepository;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -42,6 +46,8 @@ public class PostQueryService {
     private final PostImageRepository postImageRepository;
     private final StorageService storageService;
     private final InterestMessageRepository interestMessageRepository;
+    private final FeedCacheService feedCacheService;
+
     // ---------------------------------------------------------------- feed
 
     public PageResponse<PostCardResponse> feed(Long userId,
@@ -55,12 +61,28 @@ public class PostQueryService {
 
         // College comes from the DB user, never from the JWT claim.
         User user = requireUser(userId);
+        Long collegeId = user.getCollege().getId();
+
+        // Normalize once, before the cache lookup, so the cache key and the DB query
+        // always use the same values. Invalid sort values must fail before caching.
+        int safePage = normalizePage(page);
+        int safeSize = normalizeSize(size);
+        String sortKey = normalizeSortKey(sort);
+
+        long version = feedCacheService.version(collegeId);
+
+        Optional<PageResponse<PostCardResponse>> cached = feedCacheService.get(
+                version, collegeId, categoryId, q, minPrice, maxPrice,
+                sortKey, safePage, safeSize);
+        if (cached.isPresent()) {
+            return cached.get();
+        }
 
         Pageable pageable = PageRequest.of(
-                normalizePage(page), normalizeSize(size), resolveSort(sort));
+                safePage, safeSize, resolveSort(sortKey));
 
         Page<Post> posts = postRepository.findFeed(
-                user.getCollege().getId(),
+                collegeId,
                 PostStatus.APPROVED,
                 Instant.now(),
                 categoryId,
@@ -85,7 +107,19 @@ public class PostQueryService {
                 .map(post -> toCard(post, firstImageKeys.get(post.getId())))
                 .toList();
 
-        return pageResponse(posts, content);
+        PageResponse<PostCardResponse> result = pageResponse(posts, content);
+
+        Instant earliestExpiry = posts.getContent().stream()
+                .map(Post::getExpiresAt)
+                .filter(Objects::nonNull)
+                .min(Instant::compareTo)
+                .orElse(null);
+
+        feedCacheService.put(
+                version, collegeId, categoryId, q, minPrice, maxPrice,
+                sortKey, safePage, safeSize, result, earliestExpiry);
+
+        return result;
     }
 
     // -------------------------------------------------------------- detail
@@ -215,19 +249,28 @@ public class PostQueryService {
                 && !post.getExpiresAt().isAfter(Instant.now());
     }
 
-    private Sort resolveSort(String sort) {
+    // Validates the sort value and returns its canonical cache-key form.
+    private String normalizeSortKey(String sort) {
         if (sort == null || sort.isBlank() || sort.equalsIgnoreCase("newest")) {
-            return Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+            return "newest";
         }
 
         return switch (sort.toLowerCase(Locale.ROOT)) {
+            case "priceasc" -> "priceasc";
+            case "pricedesc" -> "pricedesc";
+            default -> throw new AppException(
+                    "Invalid sort. Use newest, priceAsc or priceDesc",
+                    HttpStatus.BAD_REQUEST);
+        };
+    }
+
+    private Sort resolveSort(String sortKey) {
+        return switch (sortKey) {
             case "priceasc" -> Sort.by(
                     Sort.Order.asc("price"), Sort.Order.desc("id"));
             case "pricedesc" -> Sort.by(
                     Sort.Order.desc("price"), Sort.Order.desc("id"));
-            default -> throw new AppException(
-                    "Invalid sort. Use newest, priceAsc or priceDesc",
-                    HttpStatus.BAD_REQUEST);
+            default -> Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
         };
     }
 

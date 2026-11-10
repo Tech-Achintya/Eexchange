@@ -10,6 +10,7 @@ import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.*;
 import com.eexchange.backend.Utils.JWTutil;
+import com.eexchange.backend.Utils.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,27 +21,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 
 
 @Service
 @RequiredArgsConstructor
 public class UserProfileService {
 
-    private static final String KEY_TOKENS_VALID_AFTER = "user:tokens-valid-after:";
     private static final String KEY_USER_STATUS = "user:status:";
-    private static final String KEY_LOGIN_FAIL = "login:fail:";
     private static final String KEY_RESET_ACTIVE = "pwd_reset:active:";
     private static final String KEY_RESET_TOKEN = "pwd_reset:token:";
     private static final String KEY_RESET_COOLDOWN = "pwd_reset:cooldown:";
     private static final String KEY_RESET_HOURLY = "pwd_reset:hourly:";
-
-    private static final int PASSWORD_MIN_BYTES = 8;
-    private static final int PASSWORD_MAX_BYTES = 72;
 
     private static final int NAME_MIN_LENGTH = 2;
     private static final int NAME_MAX_LENGTH = 100;
@@ -54,6 +49,9 @@ public class UserProfileService {
     private final StringRedisTemplate redisTemplate;
     private final PostImageRepository postImageRepository;
     private final StorageService storageService;
+    private final CollegeFeedVersionService collegeFeedVersionService;
+    private final TokenRevocationService tokenRevocationService;
+    private final LoginLockoutService loginLockoutService;
     private static final Logger log = LoggerFactory.getLogger(UserProfileService.class);
 
     @Transactional(readOnly = true)
@@ -73,7 +71,11 @@ public class UserProfileService {
         }
 
         user.setName(trimmedName);
-        return toProfile(userRepository.save(user));
+        User saved = userRepository.save(user);
+        if (saved.getCollege() != null) {
+            collegeFeedVersionService.incrementVersion(saved.getCollege().getId());
+        }
+        return toProfile(saved);
     }
 
     @Transactional
@@ -95,20 +97,12 @@ public class UserProfileService {
         userRepository.save(user);
 
         // IMPORTANT ORDER: cutoff first, then token generation.
-        //
-        // JJWT serializes "iat" in whole seconds, while a raw
-        // System.currentTimeMillis() contains milliseconds. If we stored the raw
-        // millis, a token generated in the same second would look older than the
-        // cutoff. Flooring the cutoff to whole seconds keeps iat >= cutoff true
-        // for the fresh token, while still rejecting every older token.
-        long cutoffEpochMillis = (System.currentTimeMillis() / 1000L) * 1000L;
-        redisTemplate.opsForValue().set(
-                KEY_TOKENS_VALID_AFTER + userId,
-                String.valueOf(cutoffEpochMillis),
-                Duration.ofMillis(jwtUtil.getExpiryMs()));
+        // The cutoff rejects every older token; the freshly generated token
+        // below is issued after the cutoff and therefore stays valid.
+        tokenRevocationService.revokeAllTokens(userId);
 
         // A password change must also clear the failed-login lockout counter.
-        redisTemplate.delete(KEY_LOGIN_FAIL + user.getEmail());
+        loginLockoutService.clearFailures(LoginLockoutService.SCOPE_USER, user.getEmail());
 
         // Generated after the cutoff write, so its iat is >= cutoff.
         String freshToken = jwtUtil.generateToken(
@@ -158,13 +152,7 @@ public class UserProfileService {
     }
 
     private void validatePasswordBytes(String password) {
-        int bytes = password.getBytes(StandardCharsets.UTF_8).length;
-        if (bytes < PASSWORD_MIN_BYTES || bytes > PASSWORD_MAX_BYTES) {
-            throw new AppException(
-                    "Password must be between " + PASSWORD_MIN_BYTES
-                            + " and " + PASSWORD_MAX_BYTES + " bytes",
-                    HttpStatus.BAD_REQUEST);
-        }
+        PasswordPolicy.validateUserPassword(password);
     }
 
     private User findUser(Long userId) {
@@ -198,13 +186,13 @@ public class UserProfileService {
 
         for (String key : List.of(
                 KEY_USER_STATUS + userId,
-                KEY_TOKENS_VALID_AFTER + userId,
-                KEY_LOGIN_FAIL + formerEmail,
+                TokenRevocationService.KEY_TOKENS_VALID_AFTER + userId,
                 KEY_RESET_ACTIVE + userId,
                 KEY_RESET_COOLDOWN + formerEmail,
                 KEY_RESET_HOURLY + formerEmail)) {
             redisTemplate.delete(key);
         }
+        loginLockoutService.clearFailures(LoginLockoutService.SCOPE_USER, formerEmail);
     }
     private void deleteStorageAfterCommit(List<String> keys) {
         if (keys == null || keys.isEmpty()) {

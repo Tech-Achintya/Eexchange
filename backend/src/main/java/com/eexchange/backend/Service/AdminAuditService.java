@@ -1,6 +1,6 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEvent;
 import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Response.AuditLogResponse;
 import com.eexchange.backend.DTO.Response.PageResponse;
@@ -39,7 +39,7 @@ public class AdminAuditService {
                 size <= 0 ? DEFAULT_SIZE : Math.min(size, MAX_SIZE),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
 
-        Page<AuditEventDocument> logs = auditEventRepository.search(
+        Page<AuditEvent> logs = auditEventRepository.search(
                 targetType, targetId, actorId, action, from, to, pageable);
 
         List<AuditLogResponse> content = logs.getContent().stream()
@@ -50,7 +50,7 @@ public class AdminAuditService {
                 logs.getTotalElements(), logs.getTotalPages());
     }
 
-    static AuditLogResponse toResponse(AuditEventDocument event) {
+    static AuditLogResponse toResponse(AuditEvent event) {
         return new AuditLogResponse(
                 event.getId(),
                 event.getActorType(),

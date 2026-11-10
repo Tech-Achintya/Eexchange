@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.DTO.Request.PostUpdateRequest;
 import com.eexchange.backend.DTO.Response.PostResponse;
 import com.eexchange.backend.Entity.Category;
@@ -50,6 +52,7 @@ class PostManagementServiceTest {
     private PostRepository postRepository;
     private StorageService storageService;
     private ApplicationEventPublisher eventPublisher;
+    private CollegeFeedVersionService collegeFeedVersionService;
     private PostService service;
 
     @BeforeEach
@@ -59,12 +62,15 @@ class PostManagementServiceTest {
         postRepository = mock(PostRepository.class);
         storageService = mock(StorageService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        collegeFeedVersionService = mock(CollegeFeedVersionService.class);
 
         service = new PostService(userRepository, categoryRepository,
-                postRepository, storageService, eventPublisher);
+                postRepository, storageService, eventPublisher,
+                collegeFeedVersionService);
 
         ReflectionTestUtils.setField(service, "expiryDays", 60L);
         ReflectionTestUtils.setField(service, "maxImages", 5);
+        ReflectionTestUtils.setField(service, "maxEditsBeforeManualReview", 5);
 
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L)));
         when(categoryRepository.findById(5L)).thenReturn(Optional.of(category()));
@@ -100,6 +106,7 @@ class PostManagementServiceTest {
 
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex.getMessage()).contains("no longer be edited");
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test
@@ -114,21 +121,117 @@ class PostManagementServiceTest {
         assertThat(post.getRejectionReason()).isNull();
         assertThat(post.getTitle()).isEqualTo("Updated title");
         verify(eventPublisher).publishEvent(new PostCreatedEvent(1L));
+        verify(collegeFeedVersionService).incrementVersion(10L);
     }
 
     @Test
-    void updateFromManualReviewResetsToPendingWithZeroAttemptsAndPublishesEvent() {
-        Post post = post(1L, 7L, PostStatus.MANUAL_REVIEW);
-        post.setModerationAttempts(3);
-        post.setAiReviewResult(java.util.Map.of("verdict", "MANUAL_REVIEW"));
+    void updateOnReportHiddenPostReturns400() {
+        Post post = post(1L, 7L, PostStatus.HIDDEN);
+        post.setHiddenReason("REPORTS");
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.updatePost(7L, 1L, updateRequest(), List.of()));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("hidden by moderation");
+        assertThat(post.getStatus()).isEqualTo(PostStatus.HIDDEN);
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
+    }
+
+    @Test
+    void updateOnAdminHiddenPostReturns400() {
+        Post post = post(1L, 7L, PostStatus.HIDDEN);
+        post.setHiddenReason("ADMIN");
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.updatePost(7L, 1L, updateRequest(), List.of()));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("hidden by moderation");
+        assertThat(post.getStatus()).isEqualTo(PostStatus.HIDDEN);
+    }
+
+    @Test
+    void updateOnUserBlockedHiddenPostStillUsesTheModerationPath() {
+        Post post = post(1L, 7L, PostStatus.HIDDEN);
+        post.setHiddenReason("USER_BLOCKED");
         when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
 
         PostResponse response = service.updatePost(7L, 1L, updateRequest(), List.of());
 
         assertThat(response.status()).isEqualTo(PostStatus.PENDING_REVIEW);
+        // The post was not in the feed before or after the edit.
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
+    }
+
+    @Test
+    void editOfAlreadyPendingPostDoesNotInvalidateTheFeedCache() {
+        Post post = post(1L, 7L, PostStatus.PENDING_REVIEW);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        service.updatePost(7L, 1L, updateRequest(), List.of());
+
+        assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
+    }
+
+    @Test
+    void updateResetsModerationAttemptsAndPreviousAiVerdict() {
+        Post post = post(1L, 7L, PostStatus.APPROVED);
+        post.setModerationAttempts(3);
+        post.setAiReviewResult(java.util.Map.of("verdict", "rejected"));
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        service.updatePost(7L, 1L, updateRequest(), List.of());
+
         assertThat(post.getModerationAttempts()).isZero();
-        assertThat(post.getRejectionReason()).isNull();
+        assertThat(post.getAiReviewResult()).isNull();
+        assertThat(post.getStatus()).isEqualTo(PostStatus.PENDING_REVIEW);
+    }
+
+    @Test
+    void updateIncrementsEditCountAndStaysPendingBelowTheCap() {
+        Post post = post(1L, 7L, PostStatus.APPROVED);
+        post.setEditCount(3);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        PostResponse response = service.updatePost(7L, 1L, updateRequest(), List.of());
+
+        assertThat(post.getEditCount()).isEqualTo(4);
+        assertThat(response.status()).isEqualTo(PostStatus.PENDING_REVIEW);
         verify(eventPublisher).publishEvent(new PostCreatedEvent(1L));
+    }
+
+    @Test
+    void fifthEditMovesPostToManualReviewAndSkipsAiModeration() {
+        Post post = post(1L, 7L, PostStatus.APPROVED);
+        post.setEditCount(4);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        PostResponse response = service.updatePost(7L, 1L, updateRequest(), List.of());
+
+        assertThat(post.getEditCount()).isEqualTo(5);
+        assertThat(response.status()).isEqualTo(PostStatus.MANUAL_REVIEW);
+        verify(eventPublisher, never()).publishEvent(any());
+        verify(collegeFeedVersionService).incrementVersion(10L);
+    }
+
+    @Test
+    void editsAreRejectedOnceThePostIsInManualReview() {
+        Post post = post(1L, 7L, PostStatus.MANUAL_REVIEW);
+        post.setEditCount(5);
+        when(postRepository.findDetailById(1L)).thenReturn(Optional.of(post));
+
+        AppException ex = assertThrows(AppException.class,
+                () -> service.updatePost(7L, 1L, updateRequest(), List.of()));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getMessage()).contains("under manual review");
+        assertThat(post.getEditCount()).isEqualTo(5);
+        assertThat(post.getStatus()).isEqualTo(PostStatus.MANUAL_REVIEW);
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -267,6 +370,8 @@ class PostManagementServiceTest {
         AppException ex = assertThrows(AppException.class,
                 () -> service.markSold(7L, 2L));
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        verify(collegeFeedVersionService).incrementVersion(10L);
     }
 
     @Test
@@ -310,6 +415,7 @@ class PostManagementServiceTest {
 
             verify(storageService).delete("posts/7/a.jpg");
             verify(storageService).delete("posts/7/b.jpg");
+            verify(collegeFeedVersionService).incrementVersion(10L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -331,6 +437,7 @@ class PostManagementServiceTest {
 
             verify(storageService).delete("posts/7/a.jpg");
             verify(storageService).delete("posts/7/b.jpg");
+            verify(collegeFeedVersionService).incrementVersion(10L);
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }

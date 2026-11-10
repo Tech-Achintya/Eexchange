@@ -54,7 +54,9 @@ public class AuthRateLimitFilter extends OncePerRequestFilter {
 
         // With server.forward-headers-strategy=native, Tomcat rewrites remoteAddr
         // from X-Forwarded-For only for trusted proxies. Direct clients cannot spoof it.
-        String key = "ratelimit:auth:ip:" + request.getRemoteAddr();
+        // One bucket per route, so a login attack cannot lock out OTP or password reset.
+        String path = request.getServletPath().replace('/', '_');
+        String key = "ratelimit:auth:ip:" + request.getRemoteAddr() + ":" + path;
 
         RedisRateLimiter.RateLimitResult result;
         try {

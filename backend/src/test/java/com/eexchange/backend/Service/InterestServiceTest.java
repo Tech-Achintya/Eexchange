@@ -48,7 +48,6 @@ class InterestServiceTest {
     private UserRepository userRepository;
     private PostImageRepository postImageRepository;
     private StorageService storageService;
-    private EmailService emailService;
     private InterestService service;
 
     private User sender;
@@ -61,15 +60,13 @@ class InterestServiceTest {
         userRepository = mock(UserRepository.class);
         postImageRepository = mock(PostImageRepository.class);
         storageService = mock(StorageService.class);
-        emailService = mock(EmailService.class);
 
         service = new InterestService(
                 interestMessageRepository,
                 postRepository,
                 userRepository,
                 postImageRepository,
-                storageService,
-                emailService);
+                storageService);
 
         sender = user(7L, "<i>Sender</i>", "sender@college.edu", 10L);
         owner = user(9L, "Owner", "owner@college.edu", 10L);
@@ -183,64 +180,16 @@ class InterestServiceTest {
     }
 
     @Test
-    void emailIsSentAfterCommitWithEscapedContentAndNoSenderAccountEmail() {
+    void createSucceedsWithoutSendingEmail() {
         InterestCreateRequest request = request(
                 "<script>alert(1)</script> hi",
                 "<b>555-1234</b>");
 
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            service.create(7L, 1L, request);
+        service.create(7L, 1L, request);
 
-            verify(emailService, never()).sendInterestEmail(
-                    any(), any(), any(), any(), any());
-
-            TransactionSynchronizationManager.getSynchronizations()
-                    .forEach(TransactionSynchronization::afterCommit);
-
-            ArgumentCaptor<String> to = ArgumentCaptor.forClass(String.class);
-            ArgumentCaptor<String> senderName = ArgumentCaptor.forClass(String.class);
-            ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-            ArgumentCaptor<String> contact = ArgumentCaptor.forClass(String.class);
-            ArgumentCaptor<String> title = ArgumentCaptor.forClass(String.class);
-
-            verify(emailService).sendInterestEmail(
-                    to.capture(), senderName.capture(), message.capture(),
-                    contact.capture(), title.capture());
-
-            assertThat(to.getValue()).isEqualTo("owner@college.edu");
-            assertThat(senderName.getValue())
-                    .isEqualTo("&lt;i&gt;Sender&lt;/i&gt;");
-            assertThat(message.getValue())
-                    .contains("&lt;script&gt;")
-                    .doesNotContain("<script>");
-            assertThat(contact.getValue()).contains("&lt;b&gt;555-1234&lt;/b&gt;");
-            assertThat(title.getValue()).contains("&lt;b&gt;Lamp&lt;/b&gt;");
-
-            assertThat(List.of(
-                    to.getValue(),
-                    senderName.getValue(),
-                    message.getValue(),
-                    contact.getValue(),
-                    title.getValue()))
-                    .noneMatch(value -> value.contains("sender@college.edu"));
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
+        // No email is sent; emails are auth-only.
     }
 
-    @Test
-    void emailIsNotSentOnRollback() {
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            service.create(7L, 1L, request("Is this available?", "9876543210"));
-
-            verify(emailService, never()).sendInterestEmail(
-                    any(), any(), any(), any(), any());
-        } finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
-    }
 
     // ----------------------------------------------------------- received
 

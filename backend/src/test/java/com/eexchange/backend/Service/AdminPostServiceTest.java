@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.AdminRole;
@@ -55,7 +57,7 @@ class AdminPostServiceTest {
 
         service = new AdminPostService(postRepository, reportRepository,
                 adminRepository, auditService, new PostMediaCleanup(storageService),
-                storageService);
+                storageService, mock(CollegeFeedVersionService.class));
 
         when(storageService.publicUrl(any()))
                 .thenAnswer(i -> "https://cdn.test/" + i.getArgument(0));

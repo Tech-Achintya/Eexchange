@@ -21,6 +21,8 @@ public record AdminPostDetailResponse(
         PostStatus status,
         String rejectionReason,
         String hiddenReason,
+        Integer moderationAttempts,
+        Integer editCount,
         Long collegeId,
         String collegeName,
         Long sellerId,

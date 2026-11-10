@@ -1,5 +1,6 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Configuration.RedisLuaScripts;
 import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Utils.OtpHashUtil;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -43,11 +45,14 @@ public class OtpService {
             throw new AppException("Hourly OTP limit reached (max " + hourlyMax + " requests/hour). Try again later.", HttpStatus.TOO_MANY_REQUESTS);
         }
 
-        // 2. Check 60-second cooldown per purpose
+        // 2. Enforce 60-second cooldown per purpose atomically via SET NX EX
         String cooldownKey = "otp:cooldown:" + normalizedPurpose + ":" + normalizedEmail;
-        Long remainingCooldown = redisTemplate.getExpire(cooldownKey);
-        if (remainingCooldown != null && remainingCooldown > 0) {
-            throw new AppException("Please wait " + remainingCooldown + " seconds before requesting another OTP.", HttpStatus.TOO_MANY_REQUESTS);
+        Boolean cooldownSet = redisTemplate.opsForValue()
+                .setIfAbsent(cooldownKey, "1", Duration.ofSeconds(cooldownSeconds));
+        if (!Boolean.TRUE.equals(cooldownSet)) {
+            Long remainingCooldown = redisTemplate.getExpire(cooldownKey);
+            long waitSeconds = (remainingCooldown != null && remainingCooldown > 0) ? remainingCooldown : cooldownSeconds;
+            throw new AppException("Please wait " + waitSeconds + " seconds before requesting another OTP.", HttpStatus.TOO_MANY_REQUESTS);
         }
 
         // 3. Generate 6-digit OTP
@@ -59,20 +64,18 @@ public class OtpService {
         String hashedOtp = OtpHashUtil.hash(otpString);
         redisTemplate.opsForValue().set(otpKey, hashedOtp, Duration.ofSeconds(otpTtlSeconds));
 
-        // 5. Set 60-second cooldown
-        redisTemplate.opsForValue().set(cooldownKey, "1", Duration.ofSeconds(cooldownSeconds));
+        // 5. Increment hourly counter atomically with 1-hour TTL
+        redisTemplate.execute(
+                RedisLuaScripts.INCR_WITH_TTL,
+                List.of(hourlyKey),
+                String.valueOf(Duration.ofHours(1).toSeconds())
+        );
 
-        // 6. Increment hourly counter (expires in 1 hour if new)
-        redisTemplate.opsForValue().increment(hourlyKey);
-        if (hourlyCount == 0) {
-            redisTemplate.expire(hourlyKey, Duration.ofHours(1));
-        }
-
-        // 7. Reset attempts counter
+        // 6. Reset attempts counter
         redisTemplate.delete("otp:attempts:" + normalizedPurpose + ":" + normalizedEmail);
 
-        // 8. Send email
-        emailService.sendOtpEmail(normalizedEmail, otpString, normalizedPurpose,() -> redisTemplate.delete(cooldownKey));
+        // 7. Send email
+        emailService.sendOtpEmail(normalizedEmail, otpString, normalizedPurpose, () -> redisTemplate.delete(cooldownKey));
     }
 
     public void verifyOtp(String email, String rawOtp, String purpose) {
@@ -87,8 +90,13 @@ public class OtpService {
             throw new AppException("OTP has expired or was not requested.", HttpStatus.BAD_REQUEST);
         }
 
-        // Increment attempts
-        Long attempts = redisTemplate.opsForValue().increment(attemptsKey);
+        // Increment attempts atomically and ensure expiration matches otpTtlSeconds (prevents key leak)
+        Long attempts = redisTemplate.execute(
+                RedisLuaScripts.INCR_WITH_TTL,
+                List.of(attemptsKey),
+                String.valueOf(otpTtlSeconds)
+        );
+
         if (attempts != null && attempts > maxAttempts) {
             redisTemplate.delete(otpKey);
             redisTemplate.delete(attemptsKey);

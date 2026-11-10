@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.DTO.Request.AdminReportActionRequest;
 import com.eexchange.backend.Entity.Admin;
 import com.eexchange.backend.Entity.College;
@@ -54,7 +56,8 @@ class AdminReportServiceTest {
                 .thenReturn(Admin.builder().id(1L).role(AdminRole.MODERATOR).build());
 
         service = new AdminReportService(reportRepository, postRepository,
-                adminRepository, auditService, new PostMediaCleanup(storageService));
+                adminRepository, auditService, new PostMediaCleanup(storageService),
+                mock(CollegeFeedVersionService.class));
     }
 
     @Test

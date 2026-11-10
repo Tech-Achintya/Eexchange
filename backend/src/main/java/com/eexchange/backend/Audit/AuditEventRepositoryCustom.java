@@ -9,21 +9,21 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Dynamic audit queries. Implemented with MongoTemplate because the filters
- * are all optional and a derived query method would need a combinatorial
- * number of signatures.
+ * Dynamic audit queries. Implemented with the JPA Criteria API because the
+ * filters are all optional and a derived query method would need a
+ * combinatorial number of signatures.
  */
 public interface AuditEventRepositoryCustom {
 
-    Page<AuditEventDocument> search(AuditTargetType targetType,
-                                    Long targetId,
-                                    Long actorId,
-                                    AuditAction action,
-                                    Instant from,
-                                    Instant to,
-                                    Pageable pageable);
+    Page<AuditEvent> search(AuditTargetType targetType,
+                            Long targetId,
+                            Long actorId,
+                            AuditAction action,
+                            Instant from,
+                            Instant to,
+                            Pageable pageable);
 
-    List<AuditEventDocument> findRecentByTarget(AuditTargetType targetType,
-                                                Long targetId,
-                                                int limit);
+    List<AuditEvent> findRecentByTarget(AuditTargetType targetType,
+                                        Long targetId,
+                                        int limit);
 }

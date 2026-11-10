@@ -1,5 +1,8 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+import com.eexchange.backend.Configuration.RedisLuaScripts;
+
 import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
@@ -26,6 +29,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -52,7 +56,7 @@ class TempBlockExpiryJobTest {
 
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.setIfAbsent(
-                eq("job:tempblock-expiry"), eq("1"), eq(Duration.ofSeconds(55))))
+                eq("job:tempblock-expiry"), anyString(), eq(Duration.ofSeconds(55))))
                 .thenReturn(true);
 
         job = new TempBlockExpiryJob(userRepository, adminUserService, redisTemplate);
@@ -73,7 +77,9 @@ class TempBlockExpiryJobTest {
 
         verify(adminUserService).unblockExpired(eq(1L), any(Instant.class));
         verify(adminUserService).unblockExpired(eq(2L), any(Instant.class));
-        verify(redisTemplate).delete("job:tempblock-expiry");
+        verify(redisTemplate).execute(
+                eq(RedisLuaScripts.RELEASE_LOCK),
+                eq(List.of("job:tempblock-expiry")), anyString());
     }
 
     @Test
@@ -84,7 +90,7 @@ class TempBlockExpiryJobTest {
         job.run();
 
         verifyNoInteractions(userRepository, adminUserService);
-        verify(redisTemplate, never()).delete(anyString());
+        verify(redisTemplate, never()).execute(any(), anyList(), anyString());
     }
 
     @Test
@@ -128,7 +134,9 @@ class TempBlockExpiryJobTest {
         assertThatThrownBy(() -> job.run())
                 .isInstanceOf(RuntimeException.class);
 
-        verify(redisTemplate).delete("job:tempblock-expiry");
+        verify(redisTemplate).execute(
+                eq(RedisLuaScripts.RELEASE_LOCK),
+                eq(List.of("job:tempblock-expiry")), anyString());
     }
 
     @Test
@@ -156,7 +164,8 @@ class TempBlockExpiryJobTest {
                 auditService,
                 new PostMediaCleanup(mock(StorageService.class)),
                 mock(UserStatusCache.class),
-                mock(EmailService.class));
+                mock(EmailService.class),
+                mock(CollegeFeedVersionService.class));
         ReflectionTestUtils.setField(realService, "maxTempBlockDays", 90);
 
         new TempBlockExpiryJob(users, realService, redisTemplate).run();

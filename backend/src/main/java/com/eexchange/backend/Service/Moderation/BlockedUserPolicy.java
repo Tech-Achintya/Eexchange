@@ -16,7 +16,8 @@ public final class BlockedUserPolicy {
     private BlockedUserPolicy() {
     }
 
-    // An expired TEMP block counts as active, matching JWTfilter and login.
+    // A TEMP block only counts while blockedUntil is in the future; an expired
+    // block is inactive. This matches JWTfilter and login.
     public static boolean isEffectivelyBlocked(User user) {
         if (user == null) {
             return false;

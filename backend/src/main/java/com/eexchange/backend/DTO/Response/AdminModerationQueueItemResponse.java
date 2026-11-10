@@ -16,6 +16,7 @@ public record AdminModerationQueueItemResponse(
         Instant queuedAt,
         String lastFailure,
         Integer attempts,
+        String queueReason,
         List<String> imageUrls
 ) {
 }

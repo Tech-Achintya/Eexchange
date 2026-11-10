@@ -1,7 +1,6 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentAdmin;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.Response.ApiResponse;
 import com.eexchange.backend.DTO.Response.AuditLogResponse;
@@ -30,8 +29,6 @@ public class AdminAuditController {
     private final AdminAuditService adminAuditService;
 
     @GetMapping
-    @RateLimit(name = "admin-audit-log", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<AuditLogResponse>>> list(
             @CurrentAdmin AdminPrincipal principal,
             @RequestParam(required = false) AuditTargetType targetType,

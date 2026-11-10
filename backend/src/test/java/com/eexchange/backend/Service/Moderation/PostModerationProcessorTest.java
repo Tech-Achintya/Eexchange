@@ -1,6 +1,8 @@
 package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
+import com.eexchange.backend.Configuration.RedisLuaScripts;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import com.eexchange.backend.Entity.Category;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.AuditAction;
@@ -13,7 +15,6 @@ import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Entity.User;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Service.AuditService;
-import com.eexchange.backend.Service.EmailService;
 import com.eexchange.backend.Service.StorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -54,7 +57,7 @@ class PostModerationProcessorTest {
     private ValueOperations<String, String> valueOperations;
     private PlatformTransactionManager transactionManager;
     private AuditService auditService;
-    private EmailService emailService;
+    private CollegeFeedVersionService collegeFeedVersionService;
     private AtomicInteger openTransactions;
     private PostModerationProcessor processor;
 
@@ -68,7 +71,7 @@ class PostModerationProcessorTest {
         properties.setModel("test/model");
         properties.setMaxAttempts(3);
         auditService = mock(AuditService.class);
-        emailService = mock(EmailService.class);
+        collegeFeedVersionService = mock(CollegeFeedVersionService.class);
         redisTemplate = mock(StringRedisTemplate.class);
         valueOperations = mock(ValueOperations.class);
 
@@ -97,7 +100,8 @@ class PostModerationProcessorTest {
         processor = new PostModerationProcessor(
                 postRepository, storageService, moderationService,
                 new RejectionMessages(), properties, redisTemplate,
-                transactionManager, auditService, emailService);
+                transactionManager, auditService,
+                collegeFeedVersionService);
     }
 
     @Test
@@ -119,6 +123,7 @@ class PostModerationProcessorTest {
                 .containsEntry("attempts", 1)
                 .containsKey("reviewedAt");
         verify(postRepository).save(post);
+        verify(collegeFeedVersionService).incrementVersion(10L);
     }
 
     @Test
@@ -135,6 +140,7 @@ class PostModerationProcessorTest {
                 .isEqualTo(new RejectionMessages().forCode("SCAM"))
                 .doesNotContain("SCAM");
         assertThat(post.getAiReviewResult()).containsEntry("code", "SCAM");
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test
@@ -152,7 +158,7 @@ class PostModerationProcessorTest {
         assertThat(post.getModerationAttempts()).isEqualTo(2);
         assertThat(post.getAiReviewResult()).containsEntry("verdict", "RETRY_LATER");
         verify(auditService, never()).logSystem(any(), any(), any(), any(), any());
-        verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test
@@ -183,6 +189,7 @@ class PostModerationProcessorTest {
                 eq(1L),
                 eq("AI review failed after 3 attempts"),
                 eq(Map.of("lastFailure", "TIMEOUT", "attempts", 3)));
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test
@@ -199,12 +206,10 @@ class PostModerationProcessorTest {
             processor.process(1L);
 
             assertThat(post.getStatus()).isEqualTo(PostStatus.MANUAL_REVIEW);
-            verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
 
             TransactionSynchronizationManager.getSynchronizations()
                     .forEach(TransactionSynchronization::afterCommit);
 
-            verify(emailService).sendManualReviewQueuedEmail("owner@college.edu", "Cheap laptop");
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -227,7 +232,6 @@ class PostModerationProcessorTest {
                     .forEach(s -> s.afterCompletion(
                             TransactionSynchronization.STATUS_ROLLED_BACK));
 
-            verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -248,7 +252,6 @@ class PostModerationProcessorTest {
         assertThat(post.getAiReviewResult()).isNull();
         verify(postRepository, never()).save(any());
         verify(auditService, never()).logSystem(any(), any(), any(), any(), any());
-        verify(emailService, never()).sendManualReviewQueuedEmail(any(), any());
     }
 
     @Test
@@ -282,7 +285,9 @@ class PostModerationProcessorTest {
 
         processor.process(1L);
 
-        verify(redisTemplate).delete("moderation:lock:1");
+        verify(redisTemplate).execute(
+                eq(RedisLuaScripts.RELEASE_LOCK),
+                eq(java.util.List.of("moderation:lock:1")), anyString());
     }
 
     @Test

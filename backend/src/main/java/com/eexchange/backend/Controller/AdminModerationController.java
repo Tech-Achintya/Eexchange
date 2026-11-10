@@ -1,7 +1,6 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentAdmin;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.Request.AdminModerationApproveRequest;
 import com.eexchange.backend.DTO.Request.AdminModerationRejectRequest;
@@ -31,8 +30,6 @@ public class AdminModerationController {
     private final AdminModerationService adminModerationService;
 
     @GetMapping("/queue")
-    @RateLimit(name = "admin-moderation-queue", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<AdminModerationQueueItemResponse>>> queue(
             @CurrentAdmin AdminPrincipal principal,
             @RequestParam(defaultValue = "0") int page,
@@ -45,8 +42,6 @@ public class AdminModerationController {
     }
 
     @PostMapping("/{postId:\\d+}/approve")
-    @RateLimit(name = "admin-moderation-approve", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> approve(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long postId,
@@ -60,8 +55,6 @@ public class AdminModerationController {
     }
 
     @PostMapping("/{postId:\\d+}/reject")
-    @RateLimit(name = "admin-moderation-reject", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> reject(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long postId,
@@ -74,8 +67,6 @@ public class AdminModerationController {
     }
 
     @PostMapping("/{postId:\\d+}/requeue")
-    @RateLimit(name = "admin-moderation-requeue", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> requeue(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long postId,

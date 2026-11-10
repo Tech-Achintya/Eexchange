@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.DTO.Request.ReportCreateRequest;
 import com.eexchange.backend.Entity.College;
 import com.eexchange.backend.Entity.Enums.PostStatus;
@@ -42,7 +44,8 @@ class ReportServiceTest {
         postRepository = mock(PostRepository.class);
         reportRepository = mock(ReportRepository.class);
 
-        service = new ReportService(userRepository, postRepository, reportRepository);
+        service = new ReportService(userRepository, postRepository, reportRepository,
+                mock(CollegeFeedVersionService.class));
         ReflectionTestUtils.setField(service, "autoHideThreshold", 3);
 
         when(userRepository.findById(7L)).thenReturn(Optional.of(user(7L, 10L)));

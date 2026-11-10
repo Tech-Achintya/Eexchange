@@ -1,13 +1,21 @@
 -- ============================================================
--- V2__seed_colleges.sql — Seed Colleges and College Email Domains
+-- V2__seed_data.sql - reference and seed data
+-- ============================================================
+-- Kept separate from the schema baseline so DDL can be applied
+-- without data and reference data can evolve independently.
+-- Every statement is idempotent (ON CONFLICT DO NOTHING).
 -- ============================================================
 
--- 1. Fallback "Others" college for non-college emails or unlisted colleges
+-- ============================================================
+-- Colleges and email domains
+-- ============================================================
+
+-- Fallback "Others" college for non-college emails or unlisted colleges
 INSERT INTO colleges (name, city, state, is_others, is_active)
 VALUES ('Others', NULL, NULL, true, true)
 ON CONFLICT (name) DO NOTHING;
 
--- 2. Seed Colleges
+-- Colleges
 INSERT INTO colleges (name, city, state, is_others, is_active)
 VALUES
     ('Chandigarh University', 'Mohali', 'Punjab', false, true),
@@ -126,7 +134,7 @@ VALUES
     ('Mahindra University', 'Hyderabad', 'Telangana', false, true)
 ON CONFLICT (name) DO NOTHING;
 
--- 3. Seed College Email Domains linked to College ID by name
+-- College email domains linked by college name
 INSERT INTO college_email_domains (college_id, domain)
 SELECT c.id, lower(trim(d.domain))
 FROM (VALUES
@@ -247,3 +255,19 @@ FROM (VALUES
 ) AS d(college_name, domain)
 JOIN colleges c ON c.name = d.college_name
 ON CONFLICT (domain) DO NOTHING;
+
+-- ============================================================
+-- Campus marketplace categories
+-- ============================================================
+
+-- Categories
+INSERT INTO categories (name, slug) VALUES
+    ('Books & Notes', 'books-notes'),
+    ('Mobiles & Electronics', 'mobiles-electronics'),
+    ('Bicycles & Vehicles', 'bicycles-vehicles'),
+    ('Hostel & Furniture', 'hostel-furniture'),
+    ('Clothing & Fashion', 'clothing-fashion'),
+    ('Sports & Fitness', 'sports-fitness'),
+    ('Stationery & Supplies', 'stationery-supplies'),
+    ('Others', 'others')
+ON CONFLICT (slug) DO NOTHING;

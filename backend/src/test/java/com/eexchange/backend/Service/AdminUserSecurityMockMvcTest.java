@@ -1,5 +1,7 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.Configuration.AdminArgumentResolver;
 import com.eexchange.backend.Controller.AdminUserController;
 import com.eexchange.backend.Audit.AuditEventRepository;
@@ -54,7 +56,8 @@ class AdminUserSecurityMockMvcTest {
                 mock(AuditService.class),
                 new PostMediaCleanup(mock(StorageService.class)),
                 mock(UserStatusCache.class),
-                mock(EmailService.class));
+                mock(EmailService.class),
+                mock(CollegeFeedVersionService.class));
 
         ReflectionTestUtils.setField(realService, "maxTempBlockDays", 90);
         adminUserService = realService;

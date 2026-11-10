@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import com.eexchange.backend.Service.TokenRevocationService;
 import com.eexchange.backend.Service.UserStatusCache;
 
 
@@ -43,7 +44,6 @@ public class JWTfilter extends OncePerRequestFilter {
     private final UserRepository userRepository;
     private final AdminRepository adminRepository;
     private final ObjectMapper objectMapper;
-    private static final String KEY_TOKENS_VALID_AFTER = "user:tokens-valid-after:";
     public JWTfilter(JWTutil jwtUtil,
                      CustomUserDetailsService userDetailsService,
                      StringRedisTemplate redisTemplate,
@@ -199,7 +199,7 @@ public class JWTfilter extends OncePerRequestFilter {
         String cutoffValue;
         try {
             cutoffValue = redisTemplate.opsForValue()
-                    .get(KEY_TOKENS_VALID_AFTER + userId);
+                    .get(TokenRevocationService.KEY_TOKENS_VALID_AFTER + userId);
         } catch (RuntimeException ex) {
             if (!RedisFailureSupport.isRedisFailure(ex)) {
                 throw ex;

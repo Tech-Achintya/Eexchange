@@ -91,14 +91,36 @@ class AuthRateLimitFilterTest {
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(rateLimiter, times(21)).consume(keyCaptor.capture(), eq(20), eq(60));
         assertThat(keyCaptor.getAllValues())
-                .containsOnly("ratelimit:auth:ip:10.1.2.3");
+                .containsOnly("ratelimit:auth:ip:10.1.2.3:_api_auth_login");
+    }
+
+    @Test
+    void differentAuthEndpointsDoNotShareABucket() throws Exception {
+        FilterChain chain = mock(FilterChain.class);
+
+        for (int i = 0; i < 20; i++) {
+            run(chain, "10.1.2.3", null);
+        }
+
+        MockHttpServletResponse otp = run(chain, "10.1.2.3", null,
+                "/api/auth/verify-otp");
+
+        assertThat(otp.getStatus()).isEqualTo(200);
+        verify(chain, times(21)).doFilter(any(), any());
     }
 
     private MockHttpServletResponse run(FilterChain chain,
                                         String remoteAddr,
                                         String forwardedFor) throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
-        request.setServletPath("/api/auth/login");
+        return run(chain, remoteAddr, forwardedFor, "/api/auth/login");
+    }
+
+    private MockHttpServletResponse run(FilterChain chain,
+                                        String remoteAddr,
+                                        String forwardedFor,
+                                        String path) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", path);
+        request.setServletPath(path);
         request.setRemoteAddr(remoteAddr);
         if (forwardedFor != null) {
             request.addHeader("X-Forwarded-For", forwardedFor);

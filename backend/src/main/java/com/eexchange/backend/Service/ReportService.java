@@ -10,6 +10,7 @@ import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
 import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,6 +28,7 @@ public class ReportService {
     private final UserRepository userRepository;
     private final PostRepository postRepository;
     private final ReportRepository reportRepository;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     @Value("${app.reports.auto-hide-threshold:3}")
     private int autoHideThreshold;
@@ -85,6 +87,7 @@ public class ReportService {
             // ONE statement, guarded by status = APPROVED, so concurrent reports race safely.
             postRepository.hideIfApproved(
                     postId, PostStatus.HIDDEN, REPORTS_HIDDEN_REASON, PostStatus.APPROVED);
+            collegeFeedVersionService.incrementVersion(post.getCollege().getId());
         }
     }
 

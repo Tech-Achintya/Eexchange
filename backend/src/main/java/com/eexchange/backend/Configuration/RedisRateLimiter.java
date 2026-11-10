@@ -1,25 +1,12 @@
 package com.eexchange.backend.Configuration;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 @Component
 public class RedisRateLimiter {
-
-    private static final DefaultRedisScript<Long> INCR_WITH_EXPIRE = new DefaultRedisScript<>(
-            """
-            local current = redis.call('INCR', KEYS[1])
-            if current == 1 then
-                redis.call('EXPIRE', KEYS[1], ARGV[1])
-            end
-            return current
-            """,
-            Long.class
-    );
 
     private final StringRedisTemplate redisTemplate;
 
@@ -28,20 +15,25 @@ public class RedisRateLimiter {
     }
 
     public RateLimitResult consume(String key, int limit, int windowSeconds) {
-        Long count = redisTemplate.execute(
-                INCR_WITH_EXPIRE,
+        @SuppressWarnings("unchecked")
+        List<Long> result = redisTemplate.execute(
+                RedisLuaScripts.RATE_LIMIT_WITH_TTL,
                 List.of(key),
                 String.valueOf(windowSeconds)
         );
 
-        long current = count == null ? 0 : count;
+        long current = (result != null && !result.isEmpty() && result.get(0) != null)
+                ? result.get(0)
+                : 0L;
 
         if (current <= limit) {
             return new RateLimitResult(true, 0);
         }
 
-        Long ttl = redisTemplate.getExpire(key, TimeUnit.SECONDS);
-        long retryAfter = (ttl == null || ttl <= 0) ? windowSeconds : ttl;
+        long ttl = (result != null && result.size() > 1 && result.get(1) != null)
+                ? result.get(1)
+                : -1L;
+        long retryAfter = (ttl <= 0) ? windowSeconds : ttl;
         return new RateLimitResult(false, retryAfter);
     }
 

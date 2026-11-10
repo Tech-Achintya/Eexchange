@@ -1,7 +1,6 @@
 package com.eexchange.backend.Controller;
 
 import com.eexchange.backend.Configuration.CustomAnnotations.CurrentAdmin;
-import com.eexchange.backend.Configuration.CustomAnnotations.RateLimit;
 import com.eexchange.backend.DTO.AdminPrincipal;
 import com.eexchange.backend.DTO.Request.AdminUserBlockRequest;
 import com.eexchange.backend.DTO.Request.AdminUserUnblockRequest;
@@ -32,8 +31,6 @@ public class AdminUserController {
     private final AdminUserService adminUserService;
 
     @GetMapping
-    @RateLimit(name = "admin-users-list", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<PageResponse<AdminUserRowResponse>>> list(
             @CurrentAdmin AdminPrincipal principal,
             @RequestParam(required = false) String q,
@@ -49,8 +46,6 @@ public class AdminUserController {
     }
 
     @GetMapping("/{id:\\d+}")
-    @RateLimit(name = "admin-users-detail", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<AdminUserDetailResponse>> detail(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id) {
@@ -62,8 +57,6 @@ public class AdminUserController {
     }
 
     @PostMapping("/{id:\\d+}/block")
-    @RateLimit(name = "admin-users-block", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> block(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id,
@@ -76,8 +69,6 @@ public class AdminUserController {
     }
 
     @PostMapping("/{id:\\d+}/unblock")
-    @RateLimit(name = "admin-users-unblock", limit = 120, windowSeconds = 60,
-            scope = RateLimit.Scope.USER)
     public ResponseEntity<ApiResponse<Void>> unblock(
             @CurrentAdmin AdminPrincipal principal,
             @PathVariable Long id,

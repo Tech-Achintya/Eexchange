@@ -11,7 +11,7 @@ import com.eexchange.backend.Exception.AppException;
 import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Service.Moderation.BlockedUserPolicy;
-import com.eexchange.backend.Utils.HtmlEscaper;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -39,8 +39,8 @@ public class AdminModerationService {
     private final PostRepository postRepository;
     private final PostImageRepository postImageRepository;
     private final AuditService auditService;
-    private final EmailService emailService;
     private final StorageService storageService;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     // ---------------------------------------------------------------- queue
 
@@ -48,8 +48,7 @@ public class AdminModerationService {
     public PageResponse<AdminModerationQueueItemResponse> queue(int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), normalizeSize(size));
 
-        Page<Post> posts = postRepository.findManualReviewQueue(
-                PostStatus.MANUAL_REVIEW, pageable);
+        Page<Post> posts = postRepository.findModerationQueue(pageable);
 
         if (posts.getContent().isEmpty()) {
             return pageResponse(posts, List.of());
@@ -77,7 +76,7 @@ public class AdminModerationService {
 
     @Transactional
     public void approve(Long adminId, Long postId, String note) {
-        Post post = requireManualReview(postId);
+        Post post = requireAwaitingDecision(postId);
 
         boolean blocked = BlockedUserPolicy.isEffectivelyBlocked(post.getUser());
 
@@ -85,24 +84,24 @@ public class AdminModerationService {
         String hiddenReason = blocked ? BlockedUserPolicy.USER_BLOCKED_REASON : null;
 
         int updated = postRepository.approveFromManualReview(
-                postId, target, hiddenReason,
-                PostStatus.MANUAL_REVIEW, Instant.now());
+                postId, target.name(), hiddenReason, Instant.now());
 
         if (updated == 0) {
             throw noLongerAwaiting();
         }
 
+        // Only an APPROVED target changes what the college feed returns. A
+        // blocked owner's post becomes HIDDEN and never enters the feed.
+        if (target == PostStatus.APPROVED) {
+            collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        }
+
         String trimmedNote = trimToNull(note);
 
         auditService.log(adminId, AuditAction.APPROVE_POST, AuditTargetType.POST,
-                postId, trimmedNote, previousStatusMetadata());
+                postId, trimmedNote, previousStatusMetadata(post));
 
-        queueOwnerEmail(post,
-                (email, title) -> emailService.sendManualReviewApprovedEmail(
-                        email,
-                        HtmlEscaper.escape(title),
-                        HtmlEscaper.escape(trimmedNote),
-                        !blocked));
+// Removed manual review approval email; only auth‑related emails are sent.
     }
 
     // ---------------------------------------------------------------- reject
@@ -110,33 +109,32 @@ public class AdminModerationService {
     @Transactional
     public void reject(Long adminId, Long postId, String reason) {
         String trimmedReason = requireReason(reason);
-        Post post = requireManualReview(postId);
+        Post post = requireAwaitingDecision(postId);
 
         int updated = postRepository.rejectFromManualReview(
-                postId, PostStatus.REJECTED, trimmedReason,
-                PostStatus.MANUAL_REVIEW, Instant.now());
+                postId, PostStatus.REJECTED.name(), trimmedReason, Instant.now());
 
         if (updated == 0) {
             throw noLongerAwaiting();
         }
 
-        auditService.log(adminId, AuditAction.REJECT_POST, AuditTargetType.POST,
-                postId, trimmedReason, previousStatusMetadata());
+        // The post was not in the feed before rejection either, so the feed
+        // cache does not need to be invalidated.
 
-        queueOwnerEmail(post,
-                (email, title) -> emailService.sendManualReviewRejectedEmail(
-                        email,
-                        HtmlEscaper.escape(title),
-                        HtmlEscaper.escape(trimmedReason)));
+        auditService.log(adminId, AuditAction.REJECT_POST, AuditTargetType.POST,
+                postId, trimmedReason, previousStatusMetadata(post));
+
+        // No email sent for rejection; emails are auth-only.
     }
 
     // --------------------------------------------------------------- requeue
 
     @Transactional
     public void requeue(Long adminId, Long postId, String note) {
+        Post post = requireAwaitingDecision(postId);
+
         int updated = postRepository.requeueFromManualReview(
-                postId, PostStatus.PENDING_REVIEW,
-                PostStatus.MANUAL_REVIEW, Instant.now());
+                postId, PostStatus.PENDING_REVIEW.name(), Instant.now());
 
         if (updated == 0) {
             throw noLongerAwaiting();
@@ -144,18 +142,32 @@ public class AdminModerationService {
 
         // Requeue sends no email: it only asks the AI to try again.
         auditService.log(adminId, AuditAction.REQUEUE_POST, AuditTargetType.POST,
-                postId, trimToNull(note), previousStatusMetadata());
+                postId, trimToNull(note), previousStatusMetadata(post));
     }
 
     // --------------------------------------------------------------- helpers
 
-    private Post requireManualReview(Long postId) {
+    private Post requireAwaitingDecision(Long postId) {
         Post post = postRepository.findAdminDetailById(postId).orElse(null);
 
-        if (post == null || post.getStatus() != PostStatus.MANUAL_REVIEW) {
+        if (post == null || !isAwaitingDecision(post)) {
             throw noLongerAwaiting();
         }
         return post;
+    }
+
+    private boolean isAwaitingDecision(Post post) {
+        if (post.getStatus() == PostStatus.MANUAL_REVIEW) {
+            return true;
+        }
+        // A post the AI wanted to retry later still needs a human escape hatch.
+        return post.getStatus() == PostStatus.PENDING_REVIEW && isRetryLater(post);
+    }
+
+    private boolean isRetryLater(Post post) {
+        Map<String, Object> review = post.getAiReviewResult();
+        Object verdict = review == null ? null : review.get("verdict");
+        return verdict != null && "RETRY_LATER".equals(verdict.toString());
     }
 
     private AdminModerationQueueItemResponse toQueueItem(Post post, List<String> imageUrls) {
@@ -173,6 +185,7 @@ public class AdminModerationService {
                 queuedAt(post, review),
                 stringValue(review, "lastFailure"),
                 intValue(review, "attempts"),
+                isRetryLater(post) ? "RETRY_LATER" : "MANUAL_REVIEW",
                 imageUrls);
     }
 
@@ -225,8 +238,8 @@ public class AdminModerationService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private Map<String, Object> previousStatusMetadata() {
-        return Map.of("previousStatus", PostStatus.MANUAL_REVIEW.name());
+    private Map<String, Object> previousStatusMetadata(Post post) {
+        return Map.of("previousStatus", post.getStatus().name());
     }
 
     private AppException noLongerAwaiting() {
@@ -234,16 +247,6 @@ public class AdminModerationService {
                 HttpStatus.CONFLICT);
     }
 
-    private void queueOwnerEmail(Post post, OwnerEmail action) {
-        String email = post.getUser() == null ? null : post.getUser().getEmail();
-        String title = post.getTitle();
-
-        if (email == null || email.isBlank()) {
-            return;
-        }
-
-        afterCommit(() -> action.send(email, title));
-    }
 
     private void afterCommit(Runnable action) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -271,8 +274,4 @@ public class AdminModerationService {
                 page.getTotalElements(), page.getTotalPages());
     }
 
-    @FunctionalInterface
-    private interface OwnerEmail {
-        void send(String email, String title);
-    }
 }

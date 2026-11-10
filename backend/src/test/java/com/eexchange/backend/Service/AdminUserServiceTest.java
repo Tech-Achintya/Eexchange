@@ -1,7 +1,9 @@
 package com.eexchange.backend.Service;
 
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
+
 import com.eexchange.backend.Audit.AuditActorType;
-import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEvent;
 import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Request.AdminUserBlockRequest;
 import com.eexchange.backend.DTO.Request.AdminUserUnblockRequest;
@@ -85,7 +87,8 @@ class AdminUserServiceTest {
                 auditService,
                 new PostMediaCleanup(storageService),
                 userStatusCache,
-                emailService);
+                emailService,
+                mock(CollegeFeedVersionService.class));
 
         ReflectionTestUtils.setField(service, "maxTempBlockDays", 90);
 
@@ -466,8 +469,8 @@ class AdminUserServiceTest {
         when(reportRepository.countByPostOwnerIdAndStatus(20L, ReportStatus.OPEN))
                 .thenReturn(2L);
 
-        AuditEventDocument audit = AuditEventDocument.builder()
-                .id("99")
+        AuditEvent audit = AuditEvent.builder()
+                .id(99L)
                 .actorType(AuditActorType.ADMIN)
                 .actorId(1L)
                 .actorName("root")

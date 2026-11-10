@@ -1,6 +1,7 @@
 package com.eexchange.backend.Service.Moderation;
 
 import com.eexchange.backend.Configuration.ModerationProperties;
+import com.eexchange.backend.Configuration.RedisLuaScripts;
 import com.eexchange.backend.Entity.Enums.AuditAction;
 import com.eexchange.backend.Entity.Enums.AuditTargetType;
 import com.eexchange.backend.Entity.Enums.PostStatus;
@@ -8,7 +9,7 @@ import com.eexchange.backend.Entity.Post;
 import com.eexchange.backend.Entity.PostImage;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Service.AuditService;
-import com.eexchange.backend.Service.EmailService;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import com.eexchange.backend.Service.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // Single entry point used by both the AFTER_COMMIT event and the retry job.
 @Service
@@ -43,14 +45,15 @@ public class PostModerationProcessor {
     private final StringRedisTemplate redisTemplate;
     private final PlatformTransactionManager transactionManager;
     private final AuditService auditService;
-    private final EmailService emailService;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     // No @Transactional here: the AI call must never hold a DB transaction.
     public void process(Long postId) {
         String lockKey = LOCK_PREFIX + postId;
+        String lockToken = UUID.randomUUID().toString();
 
         Boolean locked = redisTemplate.opsForValue()
-                .setIfAbsent(lockKey, "1", LOCK_TTL);
+                .setIfAbsent(lockKey, lockToken, LOCK_TTL);
 
         if (!Boolean.TRUE.equals(locked)) {
             log.debug("Moderation lock already held for post {}; skipping", postId);
@@ -71,7 +74,7 @@ public class PostModerationProcessor {
             // Short write: re-read under a row lock and apply only if unchanged.
             applyVerdict(postId, snapshot.fingerprint(), result);
         } finally {
-            redisTemplate.delete(lockKey);
+            redisTemplate.execute(RedisLuaScripts.RELEASE_LOCK, List.of(lockKey), lockToken);
         }
     }
 
@@ -113,7 +116,6 @@ public class PostModerationProcessor {
     private void applyVerdict(Long postId,
                               String expectedFingerprint,
                               ModerationService.ModerationResult result) {
-
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             Post post = postRepository.findByIdForUpdate(postId).orElse(null);
 
@@ -189,6 +191,13 @@ public class PostModerationProcessor {
 
             postRepository.save(post);
 
+            // The college feed contains only APPROVED posts. This post was
+            // PENDING_REVIEW when the verdict was applied, so a retry, rejection,
+            // hidden result or manual-review move does not change the feed.
+            if (post.getStatus() == PostStatus.APPROVED) {
+                collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+            }
+
             log.info("Moderation post {} -> {} (attempt {})",
                     post.getId(), result.outcome(), attempts);
         });
@@ -216,13 +225,7 @@ public class PostModerationProcessor {
                 "AI review failed after " + attempts + " attempts",
                 Map.of("lastFailure", lastFailure, "attempts", attempts));
 
-        String email = post.getUser() == null ? null : post.getUser().getEmail();
-        String title = post.getTitle();
-
-        // Send email ONLY once when entering manual review for the first time
-        if (!wasAlreadyManualReview && email != null && !email.isBlank()) {
-            afterCommit(() -> emailService.sendManualReviewQueuedEmail(email, title));
-        }
+        // No email sent for manual review queue; emails are auth-only.
     }
 
     private List<String> orderedImageKeys(Post post) {
@@ -256,6 +259,10 @@ public class PostModerationProcessor {
         map.put("promptVersion", OpenRouterModerationService.PROMPT_VERSION);
         map.put("verdict", result.outcome().name());
         map.put("code", result.code());
+        if (result.failure() != null) {
+            // Fixed failure category only; no free-form model text.
+            map.put("lastFailure", result.failure().name());
+        }
         map.put("attempts", attempts);
         map.put("reviewedAt", Instant.now().toString());
         return map;

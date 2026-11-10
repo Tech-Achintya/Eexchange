@@ -1,6 +1,6 @@
 package com.eexchange.backend.Service;
 
-import com.eexchange.backend.Audit.AuditEventDocument;
+import com.eexchange.backend.Audit.AuditEvent;
 import com.eexchange.backend.Audit.AuditEventRepository;
 import com.eexchange.backend.DTO.Request.AdminUserBlockRequest;
 import com.eexchange.backend.DTO.Request.AdminUserUnblockRequest;
@@ -20,6 +20,7 @@ import com.eexchange.backend.Repository.PostImageRepository;
 import com.eexchange.backend.Repository.PostRepository;
 import com.eexchange.backend.Repository.ReportRepository;
 import com.eexchange.backend.Repository.UserRepository;
+import com.eexchange.backend.Service.Cache.CollegeFeedVersionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,6 +63,7 @@ public class AdminUserService {
     private final PostMediaCleanup mediaCleanup;
     private final UserStatusCache userStatusCache;
     private final EmailService emailService;
+    private final CollegeFeedVersionService collegeFeedVersionService;
 
     @Value("${app.admin.max-temp-block-days:90}")
     private int maxTempBlockDays;
@@ -218,6 +220,9 @@ public class AdminUserService {
                     userId, reason, metadata);
         }
 
+        // Both block types affect what the college feed can show.
+        collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+
         // A rollback must never flip Redis or send mail.
         // A rollback must never flip Redis or send mail.
         final Instant blockUntil = until;
@@ -260,6 +265,8 @@ public class AdminUserService {
         int postsRestored = postRepository.restoreUserBlockedByUserId(
                 userId, PostStatus.APPROVED, PostStatus.HIDDEN, USER_BLOCKED_REASON);
 
+        collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+
         auditService.log(adminId, AuditAction.UNBLOCK, AuditTargetType.USER, userId, reason,
                 Map.of("previousStatus", previousStatus.name(),
                         "postsRestored", postsRestored));
@@ -292,6 +299,7 @@ public class AdminUserService {
 
         User user = userRepository.findById(userId).orElse(null);
         if (user != null) {
+            collegeFeedVersionService.incrementVersion(user.getCollege().getId());
             afterCommit(() -> {
                 updateStatusCacheQuietly(userId, UserStatus.ACTIVE);
                 emailService.sendAccountUnblockedEmail(user.getEmail());
@@ -395,7 +403,7 @@ public class AdminUserService {
                 user.getCollege().getId(), user.getCollege().getName());
     }
 
-    private AuditLogResponse toAudit(AuditEventDocument audit) {
+    private AuditLogResponse toAudit(AuditEvent audit) {
         return new AuditLogResponse(
                 audit.getId(),
                 audit.getActorType(),

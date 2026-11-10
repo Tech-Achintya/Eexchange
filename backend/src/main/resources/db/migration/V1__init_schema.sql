@@ -1,5 +1,11 @@
 -- ============================================================
--- V1__init_schema.sql — Eexchange Initial Schema
+-- V1__init_schema.sql — Eexchange complete baseline schema
+-- ============================================================
+-- This is the single baseline schema migration for a fresh database.
+-- It contains the final shape of every table, index and trigger.
+-- Catalogue/reference data lives in V2__seed_data.sql. Audit events
+-- live in PostgreSQL (admin_audit_log); there is no MongoDB
+-- dependency anymore.
 -- ============================================================
 
 -- ========================
@@ -40,9 +46,9 @@ CREATE TABLE college_email_domains
 
     CONSTRAINT uq_ced_domain UNIQUE (domain),
 
-                                       CONSTRAINT chk_ced_domain_lowercase
-                                           CHECK (domain = lower(domain))
-    );
+    CONSTRAINT chk_ced_domain_lowercase
+        CHECK (domain = lower(domain))
+);
 
 
 -- ========================
@@ -53,6 +59,7 @@ CREATE TABLE users
     id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email               VARCHAR(255) NOT NULL,
     name                VARCHAR(100) NOT NULL,
+    password_hash       VARCHAR(255) NOT NULL,
     college_id          BIGINT       NOT NULL,
     is_college_verified BOOLEAN      NOT NULL DEFAULT false,
     status              VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
@@ -79,17 +86,17 @@ CREATE TABLE users
             is_college_verified = FALSE
                 OR email_verified_at IS NOT NULL
             ),
-            CONSTRAINT chk_users_blocked_until
-            CHECK (
+    CONSTRAINT chk_users_blocked_until
+        CHECK (
             (
-            status = 'TEMP_BLOCKED'
-            AND blocked_until IS NOT NULL
-            )
-            OR
+                status = 'TEMP_BLOCKED'
+                    AND blocked_until IS NOT NULL
+                )
+                OR
             (
-            status <> 'TEMP_BLOCKED'
-            AND blocked_until IS NULL
-            )
+                status <> 'TEMP_BLOCKED'
+                    AND blocked_until IS NULL
+                )
             ),
     CONSTRAINT fk_users_college
         FOREIGN KEY (college_id) REFERENCES colleges (id)
@@ -111,9 +118,8 @@ CREATE TABLE categories
     CONSTRAINT uq_categories_slug UNIQUE (slug),
 
     CONSTRAINT chk_categories_slug_format
-        CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'
-)
-    );
+        CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+);
 
 
 -- ========================
@@ -121,22 +127,22 @@ CREATE TABLE categories
 -- ========================
 CREATE TABLE posts
 (
-    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    user_id          BIGINT       NOT NULL,
-    college_id       BIGINT       NOT NULL,
-    category_id      BIGINT       NOT NULL,
-    title            VARCHAR(150) NOT NULL,
-    description      TEXT         NOT NULL,
-    listing_type     VARCHAR(20)  NOT NULL,
-    price            NUMERIC(10, 2) CHECK (price >= 0),
-    exchange_wanted  VARCHAR(255),
-    condition        VARCHAR(20)  NOT NULL,
-    status           VARCHAR(20)  NOT NULL DEFAULT 'PENDING_REVIEW',
-    ai_review_result JSONB,
-    rejection_reason TEXT,
-    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    expires_at       TIMESTAMPTZ,
+    id                  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id             BIGINT         NOT NULL,
+    college_id          BIGINT         NOT NULL,
+    category_id         BIGINT         NOT NULL,
+    title               VARCHAR(150)   NOT NULL,
+    description         TEXT           NOT NULL,
+    price               NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
+    condition           VARCHAR(20)    NOT NULL,
+    status              VARCHAR(20)    NOT NULL DEFAULT 'PENDING_REVIEW',
+    ai_review_result    JSONB,
+    rejection_reason    TEXT,
+    hidden_reason       VARCHAR(30),
+    moderation_attempts INT            NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ    NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ    NOT NULL DEFAULT now(),
+    expires_at          TIMESTAMPTZ,
 
     CONSTRAINT fk_posts_user
         FOREIGN KEY (user_id) REFERENCES users (id)
@@ -148,38 +154,19 @@ CREATE TABLE posts
     CONSTRAINT fk_posts_category
         FOREIGN KEY (category_id) REFERENCES categories (id),
 
-    CONSTRAINT chk_posts_listing_type
-        CHECK (listing_type IN ('SELL', 'EXCHANGE', 'FREE')),
-
     CONSTRAINT chk_posts_condition
         CHECK (condition IN ('NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR')),
 
     CONSTRAINT chk_posts_status
-        CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SOLD', 'HIDDEN', 'DELETED')),
+        CHECK (status IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED', 'SOLD',
+                          'HIDDEN', 'DELETED', 'MANUAL_REVIEW')),
 
+    CONSTRAINT chk_posts_hidden_reason
+        CHECK (hidden_reason IS NULL
+            OR hidden_reason IN ('USER_BLOCKED', 'REPORTS', 'ADMIN')),
 
-    CONSTRAINT chk_posts_price_consistency
-        CHECK (
-            (
-                listing_type = 'SELL'
-                    AND price IS NOT NULL
-                    AND exchange_wanted IS NULL
-                )
-                OR
-            (
-                listing_type = 'FREE'
-                    AND price IS NULL
-                    AND exchange_wanted IS NULL
-                )
-                OR
-            (
-                listing_type = 'EXCHANGE'
-                    AND price IS NULL
-                    AND exchange_wanted IS NOT NULL
-                    AND length(trim(exchange_wanted)) > 0
-                )
-            )
-
+    CONSTRAINT chk_posts_moderation_attempts
+        CHECK (moderation_attempts >= 0)
 );
 
 
@@ -280,12 +267,13 @@ CREATE TABLE reports
 -- ========================
 CREATE TABLE interest_messages
 (
-    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    post_id    BIGINT        NOT NULL,
-    sender_id  BIGINT        NOT NULL,
-    message    VARCHAR(1000) NOT NULL,
-    is_read    BOOLEAN       NOT NULL DEFAULT false,
-    created_at TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    post_id      BIGINT        NOT NULL,
+    sender_id    BIGINT        NOT NULL,
+    message      VARCHAR(1000) NOT NULL,
+    is_read      BOOLEAN       NOT NULL DEFAULT false,
+    contact_info VARCHAR(255),
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
 
     CONSTRAINT fk_im_post
         FOREIGN KEY (post_id) REFERENCES posts (id)
@@ -301,32 +289,56 @@ CREATE TABLE interest_messages
 
 
 -- ========================
--- 10. admin_audit_log
+-- 10. saved_posts (wishlist)
+-- ========================
+CREATE TABLE saved_posts
+(
+    id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    BIGINT      NOT NULL,
+    post_id    BIGINT      NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT fk_saved_posts_user
+        FOREIGN KEY (user_id) REFERENCES users (id)
+            ON DELETE CASCADE,
+
+    CONSTRAINT fk_saved_posts_post
+        FOREIGN KEY (post_id) REFERENCES posts (id)
+            ON DELETE CASCADE,
+
+    CONSTRAINT uq_saved_posts_user_post UNIQUE (user_id, post_id)
+);
+
+
+-- ========================
+-- 11. admin_audit_log
+-- Append-only audit trail. actor_name is a snapshot so entries stay
+-- readable even if an admin account is renamed or deleted later.
 -- ========================
 CREATE TABLE admin_audit_log
 (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    admin_id    BIGINT      NOT NULL,
-    action      VARCHAR(50) NOT NULL,
+    actor_type  VARCHAR(20) NOT NULL,
+    actor_id    BIGINT,
+    actor_name  VARCHAR(100) NOT NULL,
+    action      VARCHAR(40) NOT NULL,
     target_type VARCHAR(20) NOT NULL,
     target_id   BIGINT      NOT NULL,
     reason      TEXT,
-    metadata    JSONB,
-    ip_address  VARCHAR(45),
+    metadata    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    request_id  VARCHAR(100),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT fk_audit_admin
-        FOREIGN KEY (admin_id) REFERENCES admins (id)
-            ON DELETE RESTRICT,
+    CONSTRAINT chk_audit_actor_type
+        CHECK (actor_type IN ('ADMIN', 'SYSTEM')),
 
     CONSTRAINT chk_audit_action
         CHECK (action IN (
-            'BLOCK_TEMP', 'BLOCK_PERM', 'UNBLOCK',
-            'DELETE_POST', 'APPROVE_POST', 'REJECT_POST',
-            'RESOLVE_REPORT', 'DISMISS_REPORT',
+            'BLOCK_TEMP', 'BLOCK_PERM', 'UNBLOCK', 'AUTO_UNBLOCK',
+            'DELETE_POST', 'APPROVE_POST', 'REJECT_POST', 'REQUEUE_POST',
+            'MANUAL_REVIEW_QUEUED', 'RESOLVE_REPORT', 'DISMISS_REPORT',
             'DEACTIVATE_COLLEGE', 'ACTIVATE_COLLEGE'
-            )
-) ,
+            )),
 
     CONSTRAINT chk_audit_target_type
         CHECK (target_type IN ('USER', 'POST', 'REPORT', 'COLLEGE'))
@@ -349,22 +361,21 @@ CREATE INDEX idx_posts_status ON posts (status);
 
 CREATE INDEX idx_reports_status_created ON reports (status, created_at);
 CREATE INDEX idx_reports_post_id ON reports (post_id);
+CREATE INDEX idx_reports_reporter_id ON reports (reporter_id);
 
 CREATE INDEX idx_im_post_id ON interest_messages (post_id);
 CREATE INDEX idx_im_sender_id ON interest_messages (sender_id);
-
-CREATE INDEX idx_audit_admin_id ON admin_audit_log (admin_id);
-CREATE INDEX idx_audit_target ON admin_audit_log (target_type, target_id);
-CREATE INDEX idx_audit_created_at ON admin_audit_log (created_at DESC);
-
-CREATE INDEX idx_reports_reporter_id
-    ON reports (reporter_id);
-
 CREATE INDEX idx_interest_messages_sender_created
     ON interest_messages (sender_id, created_at DESC);
 
-CREATE INDEX idx_admin_audit_target_created
+CREATE INDEX idx_saved_posts_user ON saved_posts (user_id);
+CREATE INDEX idx_saved_posts_post ON saved_posts (post_id);
+
+CREATE INDEX idx_audit_target_created
     ON admin_audit_log (target_type, target_id, created_at DESC);
+CREATE INDEX idx_audit_actor_created
+    ON admin_audit_log (actor_id, created_at DESC);
+CREATE INDEX idx_audit_created_at ON admin_audit_log (created_at DESC);
 
 
 -- ========================

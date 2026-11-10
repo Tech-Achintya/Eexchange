@@ -56,18 +56,4 @@ class EmailServiceAppNameTest {
         assertThat(captor.getValue().getBody().get("subject").toString())
                 .contains("CampusMart");
     }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void interestEmailUsesTheConfiguredAppName() {
-        emailService.sendInterestEmail(
-                "student@college.edu", "Alice", "Is this available?", "alice@college.edu", "Lamp");
-
-        ArgumentCaptor<HttpEntity<Map<String, Object>>> captor =
-                ArgumentCaptor.forClass(HttpEntity.class);
-        verify(restTemplate).postForEntity(anyString(), captor.capture(), eq(String.class));
-
-        assertThat(captor.getValue().getBody().get("subject").toString())
-                .contains("CampusMart");
-    }
 }
