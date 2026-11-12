@@ -1,0 +1,451 @@
+/* ========================================================
+   Campus Exchange Animations & Character Illustrations
+   Pleasant, light campus vibes for Auth and Dashboard
+   ======================================================== */
+
+/* Continuous floating and breathing animations */
+@keyframes campusFloatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(1deg);
+  }
+}
+
+@keyframes campusFloatGentle {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes campusFloatSway {
+  0%, 100% {
+    transform: translateY(0px) rotate(-1deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(1.5deg);
+  }
+}
+
+@keyframes campusBreatheGiver {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(0.8deg);
+  }
+}
+
+@keyframes campusBreatheReceiver {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3.5px) rotate(-0.8deg);
+  }
+}
+
+@keyframes campusArmGive {
+  0%, 100% {
+    transform: rotate(0deg);
+    transform-origin: 180px 220px;
+  }
+  50% {
+    transform: rotate(-3deg) translateX(3px);
+    transform-origin: 180px 220px;
+  }
+}
+
+@keyframes campusArmReceive {
+  0%, 100% {
+    transform: rotate(0deg);
+    transform-origin: 290px 220px;
+  }
+  50% {
+    transform: rotate(3deg) translateX(-2px);
+    transform-origin: 290px 220px;
+  }
+}
+
+@keyframes campusItemGlow {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+    filter: drop-shadow(0 4px 10px rgba(255, 107, 107, 0.35));
+  }
+  50% {
+    transform: translateY(-5px) scale(1.04);
+    filter: drop-shadow(0 8px 18px rgba(255, 201, 60, 0.55));
+  }
+}
+
+@keyframes campusSparkleDrift {
+  0% {
+    opacity: 0.3;
+    transform: translateY(0px) scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.15) rotate(12deg);
+  }
+  100% {
+    opacity: 0.3;
+    transform: translateY(0px) scale(0.85);
+  }
+}
+
+@keyframes campusLeafDrift {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  33% {
+    transform: translate(-4px, 3px) rotate(-8deg);
+  }
+  66% {
+    transform: translate(3px, -2px) rotate(6deg);
+  }
+}
+
+@keyframes campusDashMove {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes campusPulseSoft {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 16px rgba(255, 107, 107, 0.2);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 8px 24px rgba(255, 107, 107, 0.35);
+  }
+}
+
+@keyframes campusBadgeBob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* --------------------------------------------------------
+   AUTH PAGE: Campus Exchange Art Wrapper
+   -------------------------------------------------------- */
+.auth-art-pleasant {
+  position: relative;
+  padding: 38px 36px 32px;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 201, 60, 0.24), transparent 32%),
+    radial-gradient(circle at 85% 85%, rgba(139, 124, 246, 0.18), transparent 36%),
+    radial-gradient(circle at 80% 20%, rgba(39, 194, 179, 0.15), transparent 30%),
+    linear-gradient(155deg, #fffbf5 0%, #fff3e6 40%, #f0f7ff 100%);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+
+.auth-art-pleasant .auth-art-dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(139, 124, 246, 0.14) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.auth-art-pleasant > * {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-art-header {
+  margin-bottom: 8px;
+}
+
+.auth-art-pleasant .auth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: var(--pill);
+  background: #fff;
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  color: var(--coral-deep);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 4px 14px rgba(255, 107, 107, 0.12);
+}
+
+.auth-art-pleasant h2 {
+  color: var(--ink);
+  font-size: clamp(1.85rem, 2.8vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  margin: 12px 0 8px;
+  line-height: 1.08;
+}
+
+.auth-art-pleasant h2 .highlight-text {
+  background: linear-gradient(120deg, #ff6b6b 0%, #8b7cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.auth-art-pleasant .auth-art-sub {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  max-width: 380px;
+  margin-bottom: 4px;
+}
+
+/* Illustration Stage */
+.campus-exchange-stage {
+  position: relative;
+  width: 100%;
+  margin: 12px 0 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.campus-exchange-svg {
+  width: 100%;
+  max-width: 440px;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 14px 28px rgba(84, 60, 32, 0.08));
+  user-select: none;
+}
+
+/* Floating speech tags */
+.campus-bubble {
+  position: absolute;
+  padding: 7px 12px;
+  border-radius: 14px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 18px rgba(84, 60, 32, 0.1);
+  pointer-events: none;
+  animation: campusBadgeBob 3s ease-in-out infinite;
+}
+
+.campus-bubble-boy {
+  top: 8%;
+  left: 4%;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  color: var(--ink);
+  animation-delay: 0s;
+}
+
+.campus-bubble-girl {
+  top: 8%;
+  right: 4%;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(39, 194, 179, 0.4);
+  color: var(--ink);
+  animation-delay: 1.5s;
+}
+
+.campus-bubble-center {
+  bottom: 2%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1.5px solid rgba(139, 124, 246, 0.3);
+  color: #5c4cd9;
+  font-weight: 800;
+  font-size: 0.72rem;
+  border-radius: var(--pill);
+  padding: 6px 14px;
+  animation: campusPulseSoft 2.8s ease-in-out infinite;
+}
+
+/* Character animation classes within SVG */
+.anim-giver {
+  animation: campusBreatheGiver 3.8s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.anim-receiver {
+  animation: campusBreatheReceiver 4.1s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+.anim-giver-arm {
+  animation: campusArmGive 3.2s ease-in-out infinite;
+}
+
+.anim-receiver-arm {
+  animation: campusArmReceive 3.2s ease-in-out infinite;
+}
+
+.anim-exchange-item {
+  animation: campusItemGlow 2.6s ease-in-out infinite;
+}
+
+.anim-sparkle {
+  animation: campusSparkleDrift 2.2s ease-in-out infinite;
+}
+
+.anim-sparkle-2 {
+  animation: campusSparkleDrift 2.7s ease-in-out infinite 0.7s;
+}
+
+.anim-sparkle-3 {
+  animation: campusSparkleDrift 2.4s ease-in-out infinite 1.3s;
+}
+
+.anim-leaves {
+  animation: campusLeafDrift 4.5s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+.anim-exchange-dash {
+  stroke-dasharray: 6 6;
+  animation: campusDashMove 2s linear infinite;
+}
+
+.anim-cloud-slow {
+  animation: campusFloatSlow 6s ease-in-out infinite;
+}
+
+.anim-cloud-gentle {
+  animation: campusFloatGentle 4.8s ease-in-out infinite 0.5s;
+}
+
+/* Auth trust perks below */
+.auth-pleasant-perks {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.auth-pleasant-perks li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  box-shadow: 0 2px 6px rgba(84, 60, 32, 0.04);
+}
+
+.auth-pleasant-perks li svg {
+  color: var(--coral-deep);
+}
+
+/* --------------------------------------------------------
+   DASHBOARD HERO: Campus Exchange Art
+   -------------------------------------------------------- */
+.dashboard-exchange-hero {
+  position: relative;
+  flex-shrink: 0;
+  width: 360px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.dashboard-exchange-svg {
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  filter: drop-shadow(0 12px 24px rgba(139, 124, 246, 0.12));
+}
+
+.dashboard-swap-pill {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(39, 194, 179, 0.35);
+  padding: 6px 13px;
+  border-radius: var(--pill);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #0d7f75;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 6px 16px rgba(39, 194, 179, 0.18);
+  animation: campusBadgeBob 3.5s ease-in-out infinite;
+}
+
+.dashboard-swap-pill .badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #27c2b3;
+  box-shadow: 0 0 8px #27c2b3;
+}
+
+.dashboard-campus-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 107, 107, 0.25);
+  padding: 5px 12px;
+  border-radius: var(--pill);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--coral-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 6px 16px rgba(255, 107, 107, 0.15);
+  animation: campusBadgeBob 3.2s ease-in-out infinite 0.8s;
+}
+
+/* Mobile responsive styling for the illustration */
+@media (max-width: 900px) {
+  .dashboard-exchange-hero {
+    width: 300px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-exchange-hero {
+    width: 100%;
+    max-width: 340px;
+    margin: 16px auto 0;
+  }
+  .home-hero {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .home-hero-copy {
+    text-align: center;
+  }
+  .home-hero-actions {
+    justify-content: center;
+  }
+}

@@ -1,319 +1,516 @@
-import React, { useState } from 'react';
-import './Auth.css';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import toast from 'react-hot-toast';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BadgeCheck,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  ShieldCheck,
+  UserRound,
+  Wallet,
+} from 'lucide-react';
+import { authApi, getErrorMessage } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import CampusExchangeAuthArt from '../components/CampusExchangeAuthArt';
+import './AuthPage.css';
 
-export default function AuthPage({ onLogin }) {
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
-  const [signupStep, setSignupStep] = useState('email'); // 'email' | 'otp' | 'details'
-  const [form, setForm] = useState({ name: '', email: '', password: '', otp: '' });
+const emptySignup = { name: '', email: '', password: '', confirm: '' };
+
+export default function AuthPage() {
+  const { user, signIn } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initialMode = searchParams.get('mode') === 'signup' ? 'signup' : 'login';
+  const [view, setView] = useState(initialMode);
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
+  const [signupForm, setSignupForm] = useState(emptySignup);
+  const [otp, setOtp] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [collegeName, setCollegeName] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
-  const handle = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const redirectTo = useMemo(() => {
+    const from = location.state?.from;
+    return typeof from === 'string' && from.startsWith('/') ? from : '/dashboard';
+  }, [location.state]);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    if (loading) return;
+  useEffect(() => {
+    if (user) navigate('/dashboard', { replace: true });
+  }, [user, navigate]);
+
+  useEffect(() => {
+    const requested = searchParams.get('mode');
+    if (requested === 'signup' && view === 'login') setView('signup');
+  }, [searchParams, view]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendCooldown]);
+
+  const switchView = (next) => {
     setError('');
+    setShowPassword(false);
+    setForgotSent(false);
+    setView(next);
+    setSearchParams(next === 'signup' ? { mode: 'signup' } : {}, { replace: true });
+  };
 
-    if (!form.email.toLowerCase().endsWith('@cuchd.in')) {
-      setError('Error: Please use your institutional (@cuchd.in) email address.');
+  const validateEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (!validateEmail(loginForm.email.trim())) {
+      setError('That email looks a little off — double-check it?');
+      return;
+    }
+    if (!loginForm.password) {
+      setError('Your password is missing.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await authApi.login({
+        email: loginForm.email.trim(),
+        password: loginForm.password,
+      });
+      signIn(response.data);
+      toast.success(`Welcome back, ${response.data?.name?.split(' ')[0] || 'friend'}! 👋`);
+      navigate(redirectTo, { replace: true });
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, 'Could not log you in.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async (event) => {
+    event.preventDefault();
+    setError('');
+    const email = signupForm.email.trim();
+    if (signupForm.name.trim().length < 2) {
+      setError('Tell us your name — at least 2 characters.');
+      return;
+    }
+    if (!validateEmail(email)) {
+      setError('Please use a valid email address.');
+      return;
+    }
+    if (signupForm.password.length < 8) {
+      setError('Passwords need at least 8 characters.');
+      return;
+    }
+    if (signupForm.password !== signupForm.confirm) {
+      setError('The two passwords do not match.');
       return;
     }
 
-    if (mode === 'login') {
-      await handleLogin();
-    } else {
-      if (signupStep === 'email') {
-        await handleInitiateSignup();
-      } else if (signupStep === 'otp') {
-        await handleVerifyOtpStep();
-      } else {
-        await handleFinalizeSignup();
-      }
-    }
-  };
-
-  const handleLogin = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email, password: form.password }),
+      const response = await authApi.signup({
+        email,
+        name: signupForm.name.trim(),
       });
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch (parseError) {
-        throw new Error('Server returned an invalid response. Please ensure backend is running.');
-      }
-
-      if (!res.ok) {
-        if (data.message === 'User not found') {
-          throw new Error('User not found! Please sign up.');
-        }
-        throw new Error(data.message || 'Login failed');
-      }
-
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      onLogin(data.user);
-    } catch (e) {
-      setError(e.message);
+      setPendingEmail(email);
+      setCollegeName(response.data?.collegeName || '');
+      setOtp('');
+      setView('otp');
+      setResendCooldown(60);
+      toast.success('OTP sent! Check your college inbox 📬');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, 'Signup failed. Please try again.'));
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 1: Just Email -> Sends OTP
-  const handleInitiateSignup = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/signup/initiate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email }),
-      });
-      
-      let data;
-      try {
-        data = await res.json();
-      } catch (parseError) {
-        throw new Error('Server returned an invalid response. Please ensure backend is running.');
-      }
-
-      if (!res.ok) {
-        if (data.message && data.message.includes('already exists')) {
-          throw new Error('User already exists! Please login.');
-        }
-        throw new Error(data.message || 'Failed to send OTP');
-      }
-      
-      setSignupStep('otp');
-      setError('');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Step 2: OTP Verification Only
-  const handleVerifyOtpStep = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/signup/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email, otpCode: form.otp }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Invalid OTP');
-
-      setSignupStep('details');
-      setError('');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Step 3: Finalize with Name and Password
-  const handleFinalizeSignup = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/signup/verify`, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: form.email,
-          otpCode: form.otp,
-          name: form.name,
-          password: form.password
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Registration failed');
-
-      setMode('login');
-      setSignupStep('email');
-      setForm({ ...form, otp: '', password: '', name: '' });
-      setError('Registration successful! Please login.');
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetAuth = () => {
-    setSignupStep('email');
+  const handleVerifyOtp = async (event) => {
+    event.preventDefault();
     setError('');
-    // We don't necessarily want to wipe the email if they just switched tabs
-    // but for safety, let's keep it consistent.
+    if (!/^\d{6}$/.test(otp.trim())) {
+      setError('The OTP is exactly 6 digits.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await authApi.verifyOtp({
+        email: pendingEmail,
+        otp: otp.trim(),
+        name: signupForm.name.trim(),
+        password: signupForm.password,
+      });
+      signIn(response.data);
+      toast.success('You are in! Welcome to EExchange 🎉');
+      navigate(redirectTo, { replace: true });
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, 'That code did not work.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resendCooldown > 0 || loading) return;
+    setError('');
+    setLoading(true);
+    try {
+      await authApi.resendOtp({ email: pendingEmail, purpose: 'signup' });
+      setResendCooldown(60);
+      toast.success('A fresh OTP is on its way.');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, 'Could not resend the OTP.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgot = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (!validateEmail(forgotEmail.trim())) {
+      setError('Enter the email you signed up with.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await authApi.forgotPassword({ email: forgotEmail.trim() });
+      setForgotSent(true);
+      toast.success(response?.message || 'Reset link sent!');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, 'Could not send the reset link.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="auth-bg">
-      <div className="auth-glow" />
-      <div className="auth-box">
-        {/* Logo */}
-        <div className="auth-logo">
-          <span className="logo-icon">⚡</span>
-          <span className="logo-text">EExchange</span>
-        </div>
+    <div className="auth-page">
+      <div className="auth-shell">
+        <CampusExchangeAuthArt />
 
-        <p className="auth-tagline">
-          {mode === 'login'
-            ? 'Welcome back 👋 pick up where you left off'
-            : signupStep === 'email' 
-              ? 'Join the campus marketplace 🎓'
-              : signupStep === 'otp'
-                ? 'Check your email for the code ✉️'
-                : 'Final step: set your profile ✨'}
-        </p>
+        <section className="auth-form-side">
+          <AnimatePresence mode="wait">
+            {view === 'login' && (
+              <motion.div
+                key="login"
+                className="auth-form-box"
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.25 }}
+              >
+                <div className="auth-head">
+                  <span className="eyebrow">Welcome back</span>
+                  <h1>Pick up where<br />you left off.</h1>
+                  <p>Log in to see what your campus is trading today.</p>
+                </div>
 
-        {/* Tabs - Only show in initial state or login mode */}
-        {signupStep === 'email' && (
-          <div className="auth-tabs">
-            <button
-              className={`auth-tab ${mode === 'login' ? 'active' : ''}`}
-              onClick={() => { setMode('login'); resetAuth(); }}
-            >
-              Login
-            </button>
-            <button
-              className={`auth-tab ${mode === 'signup' ? 'active' : ''}`}
-              onClick={() => { setMode('signup'); resetAuth(); }}
-            >
-              Sign Up
-            </button>
-          </div>
-        )}
+                {error && <div className="alert error">{error}</div>}
 
-        <form onSubmit={submit} className="auth-form">
-          {/* LOGIN MODE */}
-          {mode === 'login' && (
-            <>
-              <div className="form-group">
-                <label>Email</label>
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="yourname@cuchd.in"
-                  value={form.email}
-                  onChange={handle}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Password</label>
-                <input
-                  name="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={form.password}
-                  onChange={handle}
-                  required
-                />
-              </div>
-            </>
-          )}
+                <form onSubmit={handleLogin} noValidate>
+                  <div className="form-group">
+                    <label htmlFor="login-email">College email</label>
+                    <div className="input-icon-wrap">
+                      <Mail size={17} />
+                      <input
+                        id="login-email"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="you@yourcollege.edu"
+                        value={loginForm.email}
+                        onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
 
-          {/* SIGNUP STEP: EMAIL */}
-          {mode === 'signup' && signupStep === 'email' && (
-            <div className="form-group">
-              <label>Institutional Email</label>
-              <input
-                name="email"
-                type="email"
-                placeholder="yourid@cuchd.in"
-                value={form.email}
-                onChange={handle}
-                required
-                autoFocus
-              />
-              <p className="otp-hint">We'll send a verification code to this address.</p>
-            </div>
-          )}
+                  <div className="form-group">
+                    <label htmlFor="login-password">Password</label>
+                    <div className="input-icon-wrap password-wrap">
+                      <Lock size={17} />
+                      <input
+                        id="login-password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        placeholder="Your secret password"
+                        value={loginForm.password}
+                        onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        onClick={() => setShowPassword((value) => !value)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                      </button>
+                    </div>
+                  </div>
 
-          {/* SIGNUP STEP: OTP */}
-          {mode === 'signup' && signupStep === 'otp' && (
-            <div className="form-group">
-              <label>Enter 6-digit OTP</label>
-              <input
-                name="otp"
-                placeholder="000000"
-                value={form.otp}
-                onChange={handle}
-                maxLength={6}
-                required
-                autoFocus
-              />
-              <p className="otp-hint">Sent to <strong>{form.email}</strong></p>
-            </div>
-          )}
+                  <div className="auth-inline">
+                    <button type="button" className="link-btn" onClick={() => switchView('forgot')}>
+                      Forgot password?
+                    </button>
+                  </div>
 
-          {/* SIGNUP STEP: DETAILS */}
-          {mode === 'signup' && signupStep === 'details' && (
-            <>
-              <div className="form-group">
-                <label>Full Name</label>
-                <input
-                  name="name"
-                  placeholder="Your display name..."
-                  value={form.name}
-                  onChange={handle}
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="form-group">
-                <label>Create Password</label>
-                <input
-                  name="password"
-                  type="password"
-                  placeholder="At least 8 characters"
-                  value={form.password}
-                  onChange={handle}
-                  required
-                />
-              </div>
-            </>
-          )}
+                  <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
+                    {loading ? <span className="spinner" /> : <>Log me in <ArrowRight size={17} /></>}
+                  </button>
+                </form>
 
-          {error && <p className={`error-msg ${error.includes('successful') ? 'success' : ''}`}>{error}</p>}
+                <p className="auth-switch">
+                  New to EExchange?{' '}
+                  <button type="button" onClick={() => switchView('signup')}>Create an account</button>
+                </p>
+              </motion.div>
+            )}
 
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Processing...' : 
-              mode === 'login' ? 'Let me in 🚀' : 
-              signupStep === 'email' ? 'Get OTP 📩' : 
-              signupStep === 'otp' ? 'Verify Code ✨' : 'Finish Signup 🎉'}
-          </button>
+            {view === 'signup' && (
+              <motion.div
+                key="signup"
+                className="auth-form-box"
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.25 }}
+              >
+                <div className="auth-head">
+                  <span className="eyebrow">Join free</span>
+                  <h1>One account.<br />Your whole campus.</h1>
+                  <p>Use your institutional email so we can verify you.</p>
+                </div>
 
-          {/* BACK BUTTONS */}
-          {mode === 'signup' && signupStep !== 'email' && (
-            <button 
-              type="button" 
-              className="btn-link" 
-              onClick={() => setSignupStep(signupStep === 'otp' ? 'email' : 'otp')}
-              style={{ marginTop: '10px', fontSize: '0.9rem', opacity: 0.7 }}
-            >
-              {signupStep === 'otp' ? '← Change email' : '← Back to OTP'}
-            </button>
-          )}
-        </form>
+                {error && <div className="alert error">{error}</div>}
 
-        {signupStep === 'email' && (
-          <p className="auth-switch">
-            {mode === 'login' ? "New here? " : 'Already have an account? '}
-            <span onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); resetAuth(); }}>
-              {mode === 'login' ? 'Sign up' : 'Login'}
-            </span>
+                <form onSubmit={handleSignup} noValidate>
+                  <div className="form-group">
+                    <label htmlFor="signup-name">Your name</label>
+                    <div className="input-icon-wrap">
+                      <UserRound size={17} />
+                      <input
+                        id="signup-name"
+                        autoComplete="name"
+                        placeholder="What should we call you?"
+                        value={signupForm.name}
+                        onChange={(event) => setSignupForm({ ...signupForm, name: event.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="signup-email">College email</label>
+                    <div className="input-icon-wrap">
+                      <Mail size={17} />
+                      <input
+                        id="signup-email"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="you@yourcollege.edu"
+                        value={signupForm.email}
+                        onChange={(event) => setSignupForm({ ...signupForm, email: event.target.value })}
+                        required
+                      />
+                    </div>
+                    <span className="field-hint">We only use this to verify your college and send your OTP.</span>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label htmlFor="signup-password">Password</label>
+                      <div className="input-icon-wrap password-wrap">
+                        <Lock size={17} />
+                        <input
+                          id="signup-password"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          placeholder="8+ characters"
+                          value={signupForm.password}
+                          onChange={(event) => setSignupForm({ ...signupForm, password: event.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="signup-confirm">Confirm</label>
+                      <div className="input-icon-wrap">
+                        <Lock size={17} />
+                        <input
+                          id="signup-confirm"
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          placeholder="Same again"
+                          value={signupForm.confirm}
+                          onChange={(event) => setSignupForm({ ...signupForm, confirm: event.target.value })}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="show-pass-check">
+                    <input
+                      type="checkbox"
+                      checked={showPassword}
+                      onChange={(event) => setShowPassword(event.target.checked)}
+                    />
+                    Show passwords
+                  </label>
+
+                  <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
+                    {loading ? <span className="spinner" /> : <>Send my OTP <ArrowRight size={17} /></>}
+                  </button>
+                </form>
+
+                <p className="auth-switch">
+                  Already have an account?{' '}
+                  <button type="button" onClick={() => switchView('login')}>Log in</button>
+                </p>
+              </motion.div>
+            )}
+
+            {view === 'otp' && (
+              <motion.div
+                key="otp"
+                className="auth-form-box"
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.25 }}
+              >
+                <button type="button" className="back-link" onClick={() => switchView('signup')}>
+                  <ArrowLeft size={15} /> Back to details
+                </button>
+
+                <div className="auth-head">
+                  <span className="eyebrow">Check your inbox</span>
+                  <h1>Almost<br />there!</h1>
+                  <p>
+                    We sent a 6-digit code to <strong>{pendingEmail}</strong>.
+                    {collegeName && <> Looks like you’re from <strong>{collegeName}</strong> 🎓</>}
+                  </p>
+                </div>
+
+                {error && <div className="alert error">{error}</div>}
+
+                <form onSubmit={handleVerifyOtp} noValidate>
+                  <div className="form-group">
+                    <label htmlFor="otp">Verification code</label>
+                    <input
+                      id="otp"
+                      className="otp-input"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="000000"
+                      value={otp}
+                      onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                      autoFocus
+                      required
+                    />
+                  </div>
+
+                  <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
+                    {loading ? <span className="spinner" /> : <>Verify & create account <ArrowRight size={17} /></>}
+                  </button>
+                </form>
+
+                <div className="resend-row">
+                  <span>Didn’t get it?</span>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={handleResend}
+                    disabled={resendCooldown > 0 || loading}
+                  >
+                    {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                  </button>
+                </div>
+                <p className="otp-tip">
+                  Tip: the code is valid for 10 minutes. Check spam if your college
+                  email is being shy.
+                </p>
+              </motion.div>
+            )}
+
+            {view === 'forgot' && (
+              <motion.div
+                key="forgot"
+                className="auth-form-box"
+                initial={{ opacity: 0, x: 14 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.25 }}
+              >
+                <button type="button" className="back-link" onClick={() => switchView('login')}>
+                  <ArrowLeft size={15} /> Back to login
+                </button>
+
+                <div className="auth-head">
+                  <span className="eyebrow">Password rescue</span>
+                  <h1>Happens to<br />the best of us.</h1>
+                  <p>Enter your email and we’ll send a link to reset your password.</p>
+                </div>
+
+                {error && <div className="alert error">{error}</div>}
+                {forgotSent && (
+                  <div className="alert success">
+                    If that email is registered, a reset link is on its way. The link
+                    expires in 15 minutes.
+                  </div>
+                )}
+
+                <form onSubmit={handleForgot} noValidate>
+                  <div className="form-group">
+                    <label htmlFor="forgot-email">College email</label>
+                    <div className="input-icon-wrap">
+                      <Mail size={17} />
+                      <input
+                        id="forgot-email"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="you@yourcollege.edu"
+                        value={forgotEmail}
+                        onChange={(event) => setForgotEmail(event.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
+                    {loading ? <span className="spinner" /> : <>Send reset link <ArrowRight size={17} /></>}
+                  </button>
+                </form>
+
+                <p className="auth-switch">
+                  Remembered it?{' '}
+                  <button type="button" onClick={() => switchView('login')}>Back to login</button>
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <p className="auth-legal">
+            By continuing you agree to keep campus trading kind, honest and drama-free.
           </p>
-        )}
+        </section>
       </div>
     </div>
   );
