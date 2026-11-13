@@ -154,9 +154,14 @@ public class AdminPostService {
         Admin admin = adminRepository.getReferenceById(adminId);
         List<String> keys = mediaCleanup.keysOf(post);
 
+        // Only APPROVED posts are in the college feed.
+        boolean wasVisible = post.getStatus() == PostStatus.APPROVED;
+
         post.setStatus(PostStatus.DELETED);
         postRepository.save(post);
-        collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        if (wasVisible) {
+            collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        }
 
         int resolved = reportRepository.resolveAllOpenForPost(
                 postId, ReportStatus.RESOLVED, ReportStatus.OPEN, admin, Instant.now(),

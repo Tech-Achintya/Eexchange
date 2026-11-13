@@ -263,6 +263,8 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     List<UserPostStatusCount> countByUserIdGroupByStatus(
             @Param("userId") Long userId);
 
+    long countByUserIdAndStatus(Long userId, PostStatus status);
+
     // TEMP block: only APPROVED posts; REPORTS/ADMIN-hidden rows are untouched.
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

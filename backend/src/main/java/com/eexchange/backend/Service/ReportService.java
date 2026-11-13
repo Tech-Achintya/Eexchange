@@ -85,9 +85,12 @@ public class ReportService {
 
         if (openReports >= autoHideThreshold) {
             // ONE statement, guarded by status = APPROVED, so concurrent reports race safely.
-            postRepository.hideIfApproved(
+            int hidden = postRepository.hideIfApproved(
                     postId, PostStatus.HIDDEN, REPORTS_HIDDEN_REASON, PostStatus.APPROVED);
-            collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+            // Only an actual APPROVED -> HIDDEN transition changes the feed.
+            if (hidden > 0) {
+                collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+            }
         }
     }
 

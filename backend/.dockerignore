@@ -1,0 +1,10 @@
+# Build context exclusions
+target/
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+.idea/
+*.iml
+*.log

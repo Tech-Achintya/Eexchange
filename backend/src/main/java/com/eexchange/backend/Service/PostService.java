@@ -114,7 +114,10 @@ public class PostService {
 
             registerRollbackCleanup(uploadedKeys, cleanedUp);
             eventPublisher.publishEvent(new PostCreatedEvent(saved.getId()));
-            collegeFeedVersionService.incrementVersion(saved.getCollege().getId());
+
+            // A brand-new post is PENDING_REVIEW, so it is not in the college
+            // feed yet. The feed cache is invalidated by the moderation result
+            // only if/when the post becomes APPROVED.
 
             return toResponse(saved);
         } catch (RuntimeException ex) {
@@ -300,9 +303,14 @@ public class PostService {
                 .map(PostImage::getUrl)
                 .toList();
 
+        // Only APPROVED posts are in the college feed.
+        boolean wasVisible = post.getStatus() == PostStatus.APPROVED;
+
         post.setStatus(PostStatus.DELETED);
         postRepository.save(post);
-        collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        if (wasVisible) {
+            collegeFeedVersionService.incrementVersion(post.getCollege().getId());
+        }
 
         deleteAfterCommit(keys, "deleted post image");
     }

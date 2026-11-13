@@ -21,10 +21,10 @@ public class OtpService {
     private final EmailService emailService;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    @Value("${app.otp.ttl-seconds:600}")
+    @Value("${app.otp.ttl-seconds:900}")
     private long otpTtlSeconds;
 
-    @Value("${app.otp.cooldown-seconds:60}")
+    @Value("${app.otp.cooldown-seconds:30}")
     private long cooldownSeconds;
 
     @Value("${app.otp.max-attempts:5}")
@@ -45,7 +45,7 @@ public class OtpService {
             throw new AppException("Hourly OTP limit reached (max " + hourlyMax + " requests/hour). Try again later.", HttpStatus.TOO_MANY_REQUESTS);
         }
 
-        // 2. Enforce 60-second cooldown per purpose atomically via SET NX EX
+        // 2. Enforce the 30-second cooldown per purpose atomically via SET NX EX
         String cooldownKey = "otp:cooldown:" + normalizedPurpose + ":" + normalizedEmail;
         Boolean cooldownSet = redisTemplate.opsForValue()
                 .setIfAbsent(cooldownKey, "1", Duration.ofSeconds(cooldownSeconds));
@@ -59,7 +59,7 @@ public class OtpService {
         int rawOtp = 100000 + secureRandom.nextInt(900000);
         String otpString = String.valueOf(rawOtp);
 
-        // 4. Store hashed OTP in Redis with 10-minute TTL: otp:{purpose}:{email}
+        // 4. Store hashed OTP in Redis with a 15-minute TTL: otp:{purpose}:{email}
         String otpKey = "otp:" + normalizedPurpose + ":" + normalizedEmail;
         String hashedOtp = OtpHashUtil.hash(otpString);
         redisTemplate.opsForValue().set(otpKey, hashedOtp, Duration.ofSeconds(otpTtlSeconds));

@@ -53,6 +53,12 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
+		<!-- Actuator: exposes /actuator/health for load balancers and uptime checks -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
 		<!-- ================================================== -->
 		<!-- Persistence — PostgreSQL + JPA + Flyway            -->
 		<!-- ================================================== -->

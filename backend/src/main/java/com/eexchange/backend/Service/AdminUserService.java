@@ -201,27 +201,36 @@ public class AdminUserService {
         metadata.put("previousStatus", previousStatus.name());
         metadata.put("until", until == null ? null : until.toString());
 
+        boolean feedChanged;
+
         if (nextStatus == UserStatus.TEMP_BLOCKED) {
             int postsHidden = postRepository.hideApprovedByUserId(
                     userId, PostStatus.HIDDEN, USER_BLOCKED_REASON, PostStatus.APPROVED);
             metadata.put("postsHidden", postsHidden);
+            feedChanged = postsHidden > 0;
 
             auditService.log(adminId, AuditAction.BLOCK_TEMP, AuditTargetType.USER,
                     userId, reason, metadata);
         } else {
+            // Only APPROVED posts were visible in the feed.
+            long approvedPosts = postRepository.countByUserIdAndStatus(
+                    userId, PostStatus.APPROVED);
+
             // Keys MUST be read before the posts disappear.
             List<String> imageKeys = postImageRepository.findUrlsByUserId(userId);
             int postsDeleted = postRepository.deleteByUserId(userId);
             mediaCleanup.deleteAfterCommit(imageKeys);
 
             metadata.put("postsDeleted", postsDeleted);
+            feedChanged = approvedPosts > 0;
 
             auditService.log(adminId, AuditAction.BLOCK_PERM, AuditTargetType.USER,
                     userId, reason, metadata);
         }
 
-        // Both block types affect what the college feed can show.
-        collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+        if (feedChanged) {
+            collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+        }
 
         // A rollback must never flip Redis or send mail.
         // A rollback must never flip Redis or send mail.
@@ -265,7 +274,9 @@ public class AdminUserService {
         int postsRestored = postRepository.restoreUserBlockedByUserId(
                 userId, PostStatus.APPROVED, PostStatus.HIDDEN, USER_BLOCKED_REASON);
 
-        collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+        if (postsRestored > 0) {
+            collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+        }
 
         auditService.log(adminId, AuditAction.UNBLOCK, AuditTargetType.USER, userId, reason,
                 Map.of("previousStatus", previousStatus.name(),
@@ -299,7 +310,9 @@ public class AdminUserService {
 
         User user = userRepository.findById(userId).orElse(null);
         if (user != null) {
-            collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+            if (postsRestored > 0) {
+                collegeFeedVersionService.incrementVersion(user.getCollege().getId());
+            }
             afterCommit(() -> {
                 updateStatusCacheQuietly(userId, UserStatus.ACTIVE);
                 emailService.sendAccountUnblockedEmail(user.getEmail());

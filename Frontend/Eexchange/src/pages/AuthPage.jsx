@@ -21,6 +21,9 @@ import './AuthPage.css';
 
 const emptySignup = { name: '', email: '', password: '', confirm: '' };
 
+// Matches app.otp.cooldown-seconds on the backend (30s resend window).
+const RESEND_COOLDOWN_SECONDS = 30;
+
 export default function AuthPage() {
   const { user, signIn } = useAuth();
   const navigate = useNavigate();
@@ -131,7 +134,7 @@ export default function AuthPage() {
       setCollegeName(response.data?.collegeName || '');
       setOtp('');
       setView('otp');
-      setResendCooldown(60);
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
       toast.success('OTP sent! Check your college inbox 📬');
     } catch (requestError) {
       setError(getErrorMessage(requestError, 'Signup failed. Please try again.'));
@@ -171,7 +174,7 @@ export default function AuthPage() {
     setLoading(true);
     try {
       await authApi.resendOtp({ email: pendingEmail, purpose: 'signup' });
-      setResendCooldown(60);
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
       toast.success('A fresh OTP is on its way.');
     } catch (requestError) {
       setError(getErrorMessage(requestError, 'Could not resend the OTP.'));
@@ -444,7 +447,7 @@ export default function AuthPage() {
                   </button>
                 </div>
                 <p className="otp-tip">
-                  Tip: the code is valid for 10 minutes. Check spam if your college
+                  Tip: the code is valid for 15 minutes. Check spam if your college
                   email is being shy.
                 </p>
               </motion.div>

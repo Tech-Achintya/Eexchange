@@ -53,6 +53,7 @@ class PostCreateServiceTest {
     private PostRepository postRepository;
     private StorageService storageService;
     private ApplicationEventPublisher eventPublisher;
+    private CollegeFeedVersionService collegeFeedVersionService;
     private PostService service;
 
     @BeforeEach
@@ -62,11 +63,12 @@ class PostCreateServiceTest {
         postRepository = mock(PostRepository.class);
         storageService = mock(StorageService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        collegeFeedVersionService = mock(CollegeFeedVersionService.class);
 
         service = new PostService(
                 userRepository, categoryRepository, postRepository,
                 storageService, eventPublisher,
-                mock(CollegeFeedVersionService.class));
+                collegeFeedVersionService);
 
         // @Value fields are not injected by plain construction.
         ReflectionTestUtils.setField(service, "expiryDays", 60L);
@@ -122,6 +124,7 @@ class PostCreateServiceTest {
 
         assertThat(response.price()).isEqualByComparingTo(BigDecimal.ZERO);
         verify(eventPublisher).publishEvent(new PostCreatedEvent(42L));
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     @Test
@@ -204,6 +207,9 @@ class PostCreateServiceTest {
                 ? java.time.Instant.now().minusSeconds(1)
                 : response.createdAt());
         verify(eventPublisher).publishEvent(new PostCreatedEvent(42L));
+        // Pending posts are not in the feed, so creating one must not
+        // invalidate the college feed cache.
+        verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
     }
 
     private PostCreateRequest validRequest() {

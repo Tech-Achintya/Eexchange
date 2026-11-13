@@ -37,7 +37,7 @@ public class EmailService {
                         @Value("${BREVO_API_KEY}") String brevoApiKey,
                         @Value("${BREVO_SENDER_EMAIL}") String senderEmail,
                         @Value("${BREVO_SENDER_NAME:EExchange}") String senderName,
-                        @Value("${app.otp.ttl-seconds:600}") long otpTtlSeconds,
+                        @Value("${app.otp.ttl-seconds:900}") long otpTtlSeconds,
                         @Value("${app.password-reset.ttl-seconds:900}") long passwordResetTtlSeconds,
                         @Value("${app.name:Eexchange}") String appName) {
         SimpleClientHttpRequestFactory requestFactory =

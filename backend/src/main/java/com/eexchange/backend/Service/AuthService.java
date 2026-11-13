@@ -49,13 +49,13 @@ public class AuthService {
     private final ObjectMapper objectMapper = new ObjectMapper()
             // Pending records written by an older deployment may contain fields
             // that no longer exist (notably passwordHash). Ignore them instead
-            // of failing verification until the 10-minute TTL expires.
+            // of failing verification until the 15-minute TTL expires.
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Value("${app.password-reset.ttl-seconds:900}")
     private long passwordResetTtlSeconds;
 
-    @Value("${app.password-reset.cooldown-seconds:60}")
+    @Value("${app.password-reset.cooldown-seconds:30}")
     private long passwordResetCooldownSeconds;
 
     @Value("${app.password-reset.hourly-max:5}")
@@ -262,7 +262,7 @@ public class AuthService {
     public void forgotPassword(ForgotPasswordRequest request) {
         String email = request.getEmail().toLowerCase().trim();
 
-        // 1. Enforce 60-second cooldown atomically via SET NX EX
+        // 1. Enforce the 30-second cooldown atomically via SET NX EX
         String cooldownKey = KEY_RESET_COOLDOWN + email;
         Boolean cooldownSet = redisTemplate.opsForValue()
                 .setIfAbsent(cooldownKey, "1", Duration.ofSeconds(passwordResetCooldownSeconds));

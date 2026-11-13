@@ -25,7 +25,8 @@ Eexchange is a comprehensive online marketplace application that allows users to
 - **Java 21**: Core programming language.
 - **Spring Boot 3.x**: Framework for rapid application development.
 - **Spring Security**: For handling authentication and authorization.
-- **MongoDB**: NoSQL database for flexible data storage.
+- **PostgreSQL**: Relational database (Supabase-compatible) for marketplace and audit data.
+- **Flyway**: Versioned database migrations (`src/main/resources/db/migration`).
 - **JWT (JSON Web Tokens)**: For secure API communications.
 - **Maven**: Build and dependency management.
 - **Lombok**: To reduce boilerplate code.
@@ -62,7 +63,7 @@ Follow these steps to clone and run the project locally.
 - [Java 21+](https://www.oracle.com/java/technologies/downloads/)
 - [Maven](https://maven.apache.org/install.html)
 - [Node.js 18+](https://nodejs.org/)
-- [MongoDB](https://www.mongodb.com/try/download/community) (Local or Atlas URL)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (local PostgreSQL + Redis)
 
 ### 1. Clone the Repository
 ```bash
@@ -75,13 +76,32 @@ cd Eexchange
    ```bash
    cd backend
    ```
-2. Configure your `application.properties` or `application.yml` in `src/main/resources` with your MongoDB URI and Mail server credentials.
-3. Build and run the backend server:
+2. Start the local PostgreSQL and Redis containers:
    ```bash
-   mvn clean install
+   docker compose up -d
+   ```
+3. Copy `.env.example` values into your IDE/OS environment and set:
+   ```text
+   SPRING_PROFILES_ACTIVE=local
+   ```
+   Local DB/Redis defaults are already provided, so no cloud credentials are needed. Secrets such as JWT keys, Brevo, S3 and OpenRouter must still be filled in.
+4. Run the backend from IntelliJ or Maven:
+   ```bash
    mvn spring-boot:run
    ```
-   The backend should now be running on `http://localhost:8080`.
+   The backend should now be running on `http://localhost:8080`. Flyway creates the schema on first startup.
+
+#### Profiles
+| Profile | Database | Redis | When |
+|---|---|---|---|
+| `local` | Docker PostgreSQL (`localhost:5432`) | Docker Redis (`localhost:6379`) | Development |
+| `prod` | Supabase (`DB_*`, `POSTGRES_*`) | Upstash (`REDIS_*`, `REDIS_SSL=true`) | AWS deployment |
+
+Run production with:
+```bash
+java -jar app.jar --spring.profiles.active=prod
+```
+or set `SPRING_PROFILES_ACTIVE=prod` in your AWS service environment. There is no default profile, so the app fails fast if none is set.
 
 ### 3. Frontend Setup
 1. Open a new terminal and navigate to the frontend directory:

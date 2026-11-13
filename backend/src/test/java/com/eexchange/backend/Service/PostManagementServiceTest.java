@@ -437,7 +437,9 @@ class PostManagementServiceTest {
 
             verify(storageService).delete("posts/7/a.jpg");
             verify(storageService).delete("posts/7/b.jpg");
-            verify(collegeFeedVersionService).incrementVersion(10L);
+            // The post was never in the feed (MANUAL_REVIEW), so deleting it
+            // must not invalidate the feed cache.
+            verify(collegeFeedVersionService, never()).incrementVersion(anyLong());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
