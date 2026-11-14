@@ -7,8 +7,6 @@ separate console with a complete audit trail.
 | | |
 |---|---|
 | **Live app** | https://eexchange.app.achinty.me |
-| **API** | https://api.eexchange.achinty.me |
-| **Health** | https://api.eexchange.achinty.me/actuator/health |
 
 Monorepo: `backend/` (Java 21 · Spring Boot) and `Frontend/Eexchange/` (React 19 · Vite).
 
